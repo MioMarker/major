@@ -20,7 +20,9 @@
 //   GET  {MAJOR_API_BASE_URL}/major-list-items?status=ready-for-agent
 //        → unused in v1 (claim is server-side queue-pop); kept for future
 //
-// All endpoints share `Authorization: Bearer <SUPABASE_AUTH_TOKEN>`.
+// All endpoints share `Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>`
+// + `X-Major-Runner-Id: <RUNNER_ID>`. The auth helper recognizes the
+// service-role bypass and attributes actions to runner:<RUNNER_ID>.
 
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
@@ -35,23 +37,23 @@ interface RunnerEnv {
   apiBaseUrl: string;
   runnerId: string;
   githubToken: string;
-  supabaseAuthToken: string;
-  claudeApiKey: string;
+  supabaseServiceRoleKey: string;
+  anthropicApiKey: string;
 }
 
 function readEnv(): RunnerEnv {
   const apiBaseUrl = (process.env.MAJOR_API_BASE_URL ?? "").trim();
   const runnerId = (process.env.RUNNER_ID ?? "").trim();
   const githubToken = (process.env.GITHUB_TOKEN ?? "").trim();
-  const supabaseAuthToken = (process.env.SUPABASE_AUTH_TOKEN ?? "").trim();
-  const claudeApiKey = (process.env.CLAUDE_API_KEY ?? "").trim();
+  const supabaseServiceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
+  const anthropicApiKey = (process.env.ANTHROPIC_API_KEY ?? "").trim();
 
   const missing: string[] = [];
   if (!apiBaseUrl) missing.push("MAJOR_API_BASE_URL");
   if (!runnerId) missing.push("RUNNER_ID");
   if (!githubToken) missing.push("GITHUB_TOKEN");
-  if (!supabaseAuthToken) missing.push("SUPABASE_AUTH_TOKEN");
-  if (!claudeApiKey) missing.push("CLAUDE_API_KEY");
+  if (!supabaseServiceRoleKey) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  if (!anthropicApiKey) missing.push("ANTHROPIC_API_KEY");
 
   if (missing.length > 0) {
     log("error", "missing required env", { missing });
@@ -62,8 +64,8 @@ function readEnv(): RunnerEnv {
     apiBaseUrl: apiBaseUrl.replace(/\/+$/, ""),
     runnerId,
     githubToken,
-    supabaseAuthToken,
-    claudeApiKey,
+    supabaseServiceRoleKey,
+    anthropicApiKey,
   };
 }
 
@@ -710,7 +712,11 @@ async function majorApiPost(endpoint: string, body: unknown): Promise<unknown> {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${env.supabaseAuthToken}`,
+          // Service-role bypass: _shared/auth.ts recognizes the project's
+          // service role key as the bearer when X-Major-Runner-Id is set,
+          // and attributes the call to runner:<runnerId>.
+          Authorization: `Bearer ${env.supabaseServiceRoleKey}`,
+          "X-Major-Runner-Id": env.runnerId,
         },
         body: JSON.stringify(body),
       });

@@ -85,14 +85,15 @@ After adding, push a no-op commit on the repo and confirm a `push` event lands i
 
 ```bash
 docker run --rm \
-  -e SUPABASE_URL=https://nuihvxluxdpdjgkvtdih.supabase.co \
-  -e SUPABASE_ANON_KEY=<anon> \
-  -e SUPABASE_SERVICE_ROLE_KEY=<service-role> \
+  -e RUNNER_ID=runner-A \
+  -e MAJOR_API_BASE_URL=https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1 \
+  -e SUPABASE_SERVICE_ROLE_KEY=<service-role-key> \
   -e GITHUB_TOKEN=<fine-grained-PAT-with-repo-write-on-healthbite-and-healix> \
   -e ANTHROPIC_API_KEY=<key> \
-  -v $HOME/.major/runner-1:/work \
   major-runner:latest
 ```
+
+The Runner authenticates to Major's API via `Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>` plus a `X-Major-Runner-Id` header. The auth helper (`supabase/functions/_shared/auth.ts`) recognizes the service-role bypass and attributes calls to `runner:<RUNNER_ID>`. No user JWT is involved; runners are not `auth.users` rows.
 
 The Runner registers itself in `major.runner_instances` on boot, then enters the main loop.
 

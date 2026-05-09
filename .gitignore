@@ -37,3 +37,4 @@ supabase/.temp/
 
 # misc
 *.local
+.vercel

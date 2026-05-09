@@ -184,10 +184,10 @@ export async function runSandboxAgent(input: RunSandboxAgentInput): Promise<Tach
       cwd: sandboxDir,
       env: {
         ...process.env,
-        // ANTHROPIC_API_KEY is what the Claude Code CLI consumes; CLAUDE_API_KEY
-        // is the env var Major exposes externally. Map one to the other so the
-        // operator only has to set CLAUDE_API_KEY at `docker run` time.
-        ANTHROPIC_API_KEY: process.env.CLAUDE_API_KEY ?? process.env.ANTHROPIC_API_KEY ?? "",
+        // ANTHROPIC_API_KEY is what the Claude Code CLI consumes. Major
+        // standardizes on the same env var name end-to-end, so this is just
+        // a passthrough; kept explicit to make the contract obvious in code.
+        ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
         // Set CWD-derived env so the subprocess git config picks up the right
         // identity for any commits it makes.
         GIT_AUTHOR_NAME: "Claude Code Tachikoma",

@@ -93,13 +93,13 @@ WORKDIR /work
 # `docker run -e ...` time, never baked into the image.
 #
 # Required at runtime (read by main.ts; missing any → exit code 2):
-#   MAJOR_API_BASE_URL  — Supabase functions root (no trailing slash)
-#   RUNNER_ID           — must be unique per running container; orchestrator
-#                          uses this as the row id in major.runner_instances
-#   GITHUB_TOKEN        — for `gh` CLI auth (PR create, status checks)
-#   SUPABASE_AUTH_TOKEN — bearer for Major API calls (service-role or
-#                          long-lived runner-account token)
-#   CLAUDE_API_KEY      — for the Claude Code CLI subprocess
+#   MAJOR_API_BASE_URL          — Supabase functions root (no trailing slash)
+#   RUNNER_ID                   — must be unique per running container; orchestrator
+#                                  uses this as the row id in major.runner_instances
+#   GITHUB_TOKEN                — for `gh` CLI auth (PR create, status checks)
+#   SUPABASE_SERVICE_ROLE_KEY   — bearer for Major API calls; auth.ts service-role
+#                                  bypass requires X-Major-Runner-Id (sent by main.ts)
+#   ANTHROPIC_API_KEY           — for the Claude Code CLI subprocess
 # Optional:
 #   IMAGE_TAG           — recorded in runner_instances.metadata for provenance
 # ────────────────────────────────────────────────────────────────────

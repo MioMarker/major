@@ -39,9 +39,9 @@ docker run -d \
   --restart unless-stopped \
   -e RUNNER_ID=runner-A \
   -e MAJOR_API_BASE_URL="https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1" \
-  -e SUPABASE_AUTH_TOKEN="<runner service-account JWT>" \
+  -e SUPABASE_SERVICE_ROLE_KEY="<service-role-key from Supabase dashboard>" \
   -e GITHUB_TOKEN="<gh PAT or installation token with PR + commit + status:write>" \
-  -e CLAUDE_API_KEY="<sk-ant-...>" \
+  -e ANTHROPIC_API_KEY="<sk-ant-...>" \
   major-runner
 ```
 
@@ -60,9 +60,9 @@ The atomic claim path (`major-claim-item`) handles the race; only one runner win
 |---|---|---|
 | `RUNNER_ID` | yes | Unique id for this container; used as the row id in `major.runner_instances`. Must be stable across restarts of the same container. |
 | `MAJOR_API_BASE_URL` | yes | Supabase functions root (no trailing slash). E.g. `https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1`. |
-| `SUPABASE_AUTH_TOKEN` | yes | Bearer token for Major API calls. Must satisfy the `runner` actor RLS policy. |
+| `SUPABASE_SERVICE_ROLE_KEY` | yes | Sent as Bearer to Major's API alongside the `X-Major-Runner-Id` header. The auth helper recognizes the service-role bypass and attributes calls to `runner:<RUNNER_ID>`. From Supabase dashboard → Project Settings → API → service_role secret. |
 | `GITHUB_TOKEN` | yes | For `gh` auth inside the sandbox (PR create, status checks, CI poll). Needs `repo`, `pull_requests:write`, `statuses:write`. |
-| `CLAUDE_API_KEY` | yes | Anthropic API key the Claude Code subprocess consumes. Mapped to `ANTHROPIC_API_KEY` for the subprocess env. |
+| `ANTHROPIC_API_KEY` | yes | Anthropic API key the Claude Code subprocess consumes. Passed through to the subprocess unchanged. |
 | `IMAGE_TAG` | no | Recorded in `runner_instances.metadata.imageTag` for provenance. |
 
 ## What happens on boot
