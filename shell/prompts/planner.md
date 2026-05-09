@@ -20,7 +20,7 @@ Wiring is a one-line change in `runner/main.ts` plus reading the planner output 
 
 ### Inputs
 
-- `/work/.major/item.json` — Work Item snapshot (same fields as implementer prompt).
+- `/work/.major/item.json` — Brief snapshot (same fields as implementer prompt).
 - `/work/<repo-name>/` — repo at `major/work-item-<id>` head.
 
 ### Process
