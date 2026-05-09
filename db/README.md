@@ -57,7 +57,7 @@ npx -y supabase migration repair --status reverted <version>
 - **One SQL file per migration**, named with the Supabase CLI's expected
   timestamp prefix `YYYYMMDDHHMMSS_<descriptive_name>.sql`. The CLI
   applies migrations in lexicographic order, which the timestamp guarantees.
-- **Append-only.** Once a migration is on `develop`, never edit it. Mistakes
+- **Append-only.** Once a migration is on `dev`, never edit it. Mistakes
   in shipped migrations are corrected by a follow-up migration, not by
   rewriting history. (`db push` keys off file content; editing in place
   desynchronizes local from remote.)

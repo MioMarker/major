@@ -51,7 +51,7 @@ Almost always `git-change` for engineering work. `triage-change-set` is reserved
 
 #### Base branch
 
-Default `develop` for HealthBite and Healix. Pick something else only if the repo conventions say so.
+Default `dev` for HealthBite and Healix. Pick something else only if the repo conventions say so.
 
 #### Queue rank
 
@@ -115,7 +115,7 @@ Output is a single JSON object on stdout (last line, fenced):
       "workItemId": <id>,
       "gitRepositoryRef": "MioMarker/healthbite",
       "gitBranch": "major/work-item-<id>",
-      "baseBranch": "develop"
+      "baseBranch": "dev"
     },
     {
       "type": "set-queue-rank",

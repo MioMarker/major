@@ -4,7 +4,7 @@ Major's schema lives in `db/`. Migrations are append-only and monotonically numb
 
 ## Append-Only
 
-- **Never edit a previously-merged migration.** Once a migration has been applied to the dev project (or merged to `develop`), it is immutable.
+- **Never edit a previously-merged migration.** Once a migration has been applied to the dev project (or merged to `dev`), it is immutable.
 - To change a previous migration's effect, write a new migration that supersedes it. Drops, alters, and column renames all go in new files.
 - The only acceptable in-place edit to an existing migration file is fixing a typo before the file has ever been applied. After that: write a new file.
 

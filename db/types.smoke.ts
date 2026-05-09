@@ -146,7 +146,7 @@ const _wi: WorkItem = {
   expectedPaths: ['src/foo/**'],
   gitRepositoryRef: 'MioMarker/healthbite',
   gitBranch: null,
-  baseBranch: 'develop',
+  baseBranch: 'dev',
   prStatus: 'absent',
   prUrl: null,
   queueRank: 100,

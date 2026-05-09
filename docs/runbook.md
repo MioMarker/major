@@ -141,7 +141,7 @@ VALUES
 
 Run all four statements in a single transaction (`BEGIN;` … `COMMIT;`). Without the Event, the audit trail is broken; without the status update, the Reaper will keep firing.
 
-If the situation looks unsafe to retry (e.g., the Runner committed bad code that's now in `develop`), set the Item to `ready-for-human` instead of `ready-for-agent`.
+If the situation looks unsafe to retry (e.g., the Runner committed bad code that's now in `dev`), set the Item to `ready-for-human` instead of `ready-for-agent`.
 
 ### 2.3 Re-running a failed Item
 
@@ -268,33 +268,33 @@ Do not author additional artifact type contracts in v1. New artifact types requi
 
 ---
 
-## 6. Switching HealthBite from main-as-integration to develop-as-integration
+## 6. Switching HealthBite from main-as-integration to dev-as-integration
 
-Major's adoption of HealthBite (and Healix, already on this model) requires HealthBite to use `develop` as the integration branch and `main` as the release branch. The mechanical steps:
+Major's adoption of HealthBite (and Healix, already on this model) requires HealthBite to use `dev` as the integration branch and `main` as the release branch. The mechanical steps:
 
-1. **Create the `develop` branch off current `main`.**
+1. **Create the `dev` branch off current `main`.**
    ```bash
    cd ~/Projects/healthbite
    git fetch origin
    git checkout main && git pull
-   git checkout -b develop
-   git push -u origin develop
+   git checkout -b dev
+   git push -u origin dev
    ```
 
-2. **Mirror the `main` branch protection ruleset onto `develop`.** In GitHub Settings → Rules → Rulesets, duplicate the `main` ruleset and target `refs/heads/develop`. Ensure all the same checks remain: required PR, required code-owner review, no direct push, no force-push, linear history.
+2. **Mirror the `main` branch protection ruleset onto `dev`.** In GitHub Settings → Rules → Rulesets, duplicate the `main` ruleset and target `refs/heads/dev`. Ensure all the same checks remain: required PR, required code-owner review, no direct push, no force-push, linear history.
 
-3. **Update `.github/CODEOWNERS` to target `develop`-bound PRs.** The existing CODEOWNERS file works regardless of target; verify both `@Pioneer18` and `@kuvekep14` are listed and there are no path-specific overrides that would carve one of them out.
+3. **Update `.github/CODEOWNERS` to target `dev`-bound PRs.** The existing CODEOWNERS file works regardless of target; verify both `@Pioneer18` and `@kuvekep14` are listed and there are no path-specific overrides that would carve one of them out.
 
-4. **Update HealthBite's `.claude/rules/common/git-workflow.md` and `deploy-workflow.md`** to reflect "branch off `develop`, PR back to `develop`, release = `develop → main` merge." File this as a separate PR in HealthBite — it's out of scope for the Major repo's commits but is a follow-on for ADR 003.
+4. **Update HealthBite's `.claude/rules/common/git-workflow.md` and `deploy-workflow.md`** to reflect "branch off `dev`, PR back to `dev`, release = `dev → main` merge." File this as a separate PR in HealthBite — it's out of scope for the Major repo's commits but is a follow-on for ADR 003.
 
-5. **Communicate to Paul (`@kuvekep14`).** Two-dev rebuild of muscle memory: every PR retargets, every release becomes a deliberate `develop → main` merge.
+5. **Communicate to Paul (`@kuvekep14`).** Two-dev rebuild of muscle memory: every PR retargets, every release becomes a deliberate `dev → main` merge.
 
-6. **Update Major's `git_repository_ref` config (if any) for HealthBite Items** to use `develop` as `base_branch`. The default in `supabase/migrations/20260509000000_initial_schema.sql` is already `develop`; Items created before this switch may have `main` baked in — fix in place via SQL or via Triage Change Set on each affected Item.
+6. **Update Major's `git_repository_ref` config (if any) for HealthBite Items** to use `dev` as `base_branch`. The default in `supabase/migrations/20260509000000_initial_schema.sql` is already `dev`; Items created before this switch may have `main` baked in — fix in place via SQL or via Triage Change Set on each affected Item.
 
 7. **Tag the cutover.** Annotated tag on the last `main`-based commit:
    ```bash
-   git tag -a backend/2026-05-09-cutover -m "HealthBite switches to develop-as-integration; main becomes release"
+   git tag -a backend/2026-05-09-cutover -m "HealthBite switches to dev-as-integration; main becomes release"
    git push origin backend/2026-05-09-cutover
    ```
 
-After cutover: verify by opening a trivial PR targeting `develop` and walking it through the new flow. The release path (`develop → main`) is exercised at the next mobile or backend release, not as part of the cutover itself.
+After cutover: verify by opening a trivial PR targeting `dev` and walking it through the new flow. The release path (`dev → main`) is exercised at the next mobile or backend release, not as part of the cutover itself.

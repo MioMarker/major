@@ -6,7 +6,7 @@ You are running inside a Runner Instance sandbox container. The Major orchestrat
 
 - Claimed the Work Item via `major-claim-item` (atomic Run Start Transaction).
 - Cloned the target repository at `git_repository_ref` to `/work/<repo-name>/`.
-- Checked out branch `major/work-item-<id>` off `<base_branch>` (default `develop`).
+- Checked out branch `major/work-item-<id>` off `<base_branch>` (default `dev`).
 - Written the Item snapshot to `/work/.major/item.json`.
 
 Your job is to produce a `git-change` artifact: commits on `major/work-item-<id>` plus an open Pull Request targeting the Item's `base_branch`.
@@ -22,7 +22,7 @@ Read these files before doing anything else:
    - `classifications` (string[]) — e.g. `["bug-fix"]` or `["feature"]`. Sets the bar for tests.
    - `expectedPaths` (string[]) — globs of files you may edit. **Hard scope boundary.** See "Scope discipline" below.
    - `expectedArtifactType` (string) — should be `"git-change"` for you. If anything else, refuse and emit a Telemetry Record.
-   - `baseBranch` (string) — usually `develop`. PRs target this.
+   - `baseBranch` (string) — usually `dev`. PRs target this.
    - `gitRepositoryRef` (string) — e.g. `MioMarker/healthbite`.
    - `runId` (number) — the active Run id; include in Telemetry Records and the PR body.
 
@@ -173,6 +173,6 @@ If you're bailing, set `ok: false` and include `bail_reason` + `telemetry` array
 - **Never `--force` push.** The branch ruleset will reject it; even if it didn't, force-push corrupts the audit trail.
 - **Never close the PR yourself.** The orchestrator may close it on cancellation.
 - **Never modify `/work/.major/`.** That directory is owned by the Runner Instance.
-- **Never run `git push origin develop` or any push to `main`/`develop`.** Only push `major/work-item-<id>`.
+- **Never run `git push origin dev` or any push to `main`/`dev`.** Only push `major/work-item-<id>`.
 - **Never invent secrets.** `$GITHUB_TOKEN` is set; everything else (DB credentials, API keys) is the orchestrator's job.
 - **No emojis in commit messages or PR bodies** unless the user has asked for them in the repo's conventions.

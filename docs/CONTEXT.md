@@ -230,8 +230,8 @@ _Avoid_: "Git workflow" (ambiguous), "Git-based workflow."
 **Git Repository Reference** — Durable reference to a Git repo (e.g., `MioMarker/healthbite`). Each Item names exactly one. Stored on `work_items`.
 _Avoid_: "repo," "repository" (unqualified — could be the dev Supabase reference too).
 
-**Git Branch** — A named ref. Major creates exactly one per Item: `major/work-item-<id>`, off `develop`.
-_Avoid_: "branch" (unqualified — disambiguate from main/develop).
+**Git Branch** — A named ref. Major creates exactly one per Item: `major/work-item-<id>`, off `dev`.
+_Avoid_: "branch" (unqualified — disambiguate from main/dev).
 
 **Git Commit Reference** — A `(base_sha, head_sha, compare_range)` tuple identifying a specific change set on a branch. Stored on a Run's coordination metadata.
 _Avoid_: "commit," "SHA" (those are sub-fields).

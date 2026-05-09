@@ -138,7 +138,7 @@ Response when claim succeeds:
     "classifications": ["bug-fix"],
     "expectedArtifactType": "git-change",
     "expectedPaths": ["src/services/meals/**"],
-    "baseBranch": "develop",
+    "baseBranch": "dev",
     "gitRepositoryRef": "MioMarker/healthbite",
     "contentMd": "...",
     "currentRevisionId": 19

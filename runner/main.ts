@@ -439,7 +439,7 @@ async function prepareSandbox(claim: ClaimResponse): Promise<string> {
 
   // Clone via HTTPS with the GITHUB_TOKEN; gh-style URL.
   const cloneUrl = `https://x-access-token:${env.githubToken}@github.com/${repoRef}.git`;
-  const baseBranch = claim.workItem.baseBranch ?? "develop";
+  const baseBranch = claim.workItem.baseBranch ?? "dev";
   const featureBranch = `major/work-item-${claim.workItem.id}`;
 
   await runShell("git", ["clone", "--depth", "50", cloneUrl, sandboxDir]);

@@ -18,7 +18,7 @@ Top-level instructions for Claude Code (and any other AI agent) working ON Major
 5. **Path-blocker is not optional.** Any code path that applies a Triage Change Set must run the path-blocker rule. Don't add a "skip" flag.
 6. **Idempotency keys are non-negotiable.** Every retryable / replayable write (Events, Verification Results, Run Finalization, Change Operation apply) must include an idempotency key derived per `SPEC.md`.
 7. **Prompt versioning.** When changing any Tachikoma prompt, bump its `*_PROMPT_VERSION` constant in `runner/prompts/versions.ts` to today's date in `<role>@YYYY-MM-DD` format. Same convention as HealthBite's `chat-with-ai`.
-8. **PRs target `develop`, never `main`.** Major drives Items to merge to `develop`. Releases (`develop → main`) are explicit human acts outside the Item lifecycle.
+8. **PRs target `dev`, never `main`.** Major drives Items to merge to `dev`. Releases (`dev → main`) are explicit human acts outside the Item lifecycle.
 9. **No secrets in code or prompts.** Service-role keys, `OPENAI_API_KEY`, GitHub tokens — env vars only.
 
 ## Directory ownership
@@ -37,10 +37,10 @@ Top-level instructions for Claude Code (and any other AI agent) working ON Major
 
 ## Workflow
 
-- Trunk-based; branch off `develop`, PR back to `develop`. `main` is release.
+- Trunk-based; branch off `dev`, PR back to `dev`. `main` is release.
 - Two devs jointly review (`@Pioneer18` + `@kuvekep14`). Author cannot self-approve.
-- Linear history (squash or rebase merge); no merge commits to `develop`.
-- `develop` and `main` both have rulesets: required PR, required code-owner review, no force-push.
+- Linear history (squash or rebase merge); no merge commits to `dev`.
+- `dev` and `main` both have rulesets: required PR, required code-owner review, no force-push.
 - Agent-assisted commits get the `Co-Authored-By: Claude ...` footer.
 - Issue → Triage Session → Items → PR. Auto-triage queue path-blocker rule is the only auto-apply path.
 

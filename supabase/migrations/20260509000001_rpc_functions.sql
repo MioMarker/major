@@ -305,7 +305,7 @@ begin
         v_payload->>'expected_artifact_type',
         coalesce(array(select jsonb_array_elements_text(v_payload->'expected_paths')), '{}'),
         v_payload->>'git_repository_ref',
-        coalesce(v_payload->>'base_branch', 'develop'),
+        coalesce(v_payload->>'base_branch', 'dev'),
         nullif((v_payload->>'queue_rank'),'')::integer,
         v_payload->>'priority_class',
         v_payload->>'placement_reason'

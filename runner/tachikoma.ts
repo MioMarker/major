@@ -297,7 +297,7 @@ function buildSystemHeader(args: {
     `**Runner Instance:** ${run.runnerInstanceId}`,
     `**Work Item:** ${item.id} — ${item.title}`,
     `**Repo:** ${item.gitRepositoryRef ?? "(unset)"}`,
-    `**Branch:** major/work-item-${item.id} → ${item.baseBranch ?? "develop"}`,
+    `**Branch:** major/work-item-${item.id} → ${item.baseBranch ?? "dev"}`,
     `**Expected paths:** ${item.expectedPaths.join(", ") || "(none — refuse if you need to write code)"}`,
     `**Expected artifact:** ${item.expectedArtifactType ?? "(unset)"}`,
     ``,

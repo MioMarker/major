@@ -24,7 +24,7 @@ First deployments drive **HealthBite** (`~/Projects/healthbite`) and **Healix** 
 | Item domain | Engineering work |
 | Output type contracts | `git-change` (primary), `triage-change-set` (output of Auto Triage Run) |
 | Runtime | Runner Instances; per Run, sequential implementer + reviewer Tachikoma phases inside one sandbox session |
-| Repository integration | GitHub; per-Item branch `major/work-item-<id>` off `develop`; PR body carries `Major-item: <id>` Repository Correlation Receipt |
+| Repository integration | GitHub; per-Item branch `major/work-item-<id>` off `dev`; PR body carries `Major-item: <id>` Repository Correlation Receipt |
 | Authority | Path-blocker rule; Instruction Trust Boundary; reviewer Tachikoma advisory; humans own merge + QA + acceptance |
 | Verification | Sandbox-run `tsc --noEmit` + tests required; eval gate external + advisory; reviewer comments advisory |
 | Review surface | Next.js web app; Items View as primary navigation |
@@ -263,8 +263,8 @@ Stack: Next.js 14 App Router, Tailwind, `@supabase/supabase-js`, shadcn/ui or si
 - **Image**: `runner/Dockerfile` — base: deno + node20 + Claude Code CLI + gh + git; ENTRYPOINT `runner/main.ts`
 - **Main loop**: poll `major-list-items?status=ready-for-agent`, sort by `queue_rank`, attempt Run Start Transaction via `major-claim-item`
 - **On claim**: clone or fetch repo (HealthBite or Healix per `git_repository_ref`), checkout `major/work-item-<id>`, ensure on correct base
-- **Phase 1 — runImplementer** (`runner/tachikoma.ts`): Claude Code subprocess with implementer prompt; agent reads `/work/.major/item-<id>.json` (PRD + metadata), implements, runs `tsc --noEmit` and tests in sandbox until green or budget exhausted, commits, pushes, opens PR via `gh pr create --base develop --head major/work-item-<id>`
-- **Phase 2 — runReviewer**: fresh Claude Code subprocess, same sandbox, `git diff develop...HEAD`, posts comments via `gh pr review --comment`, sets `major/review` status check via `gh api`
+- **Phase 1 — runImplementer** (`runner/tachikoma.ts`): Claude Code subprocess with implementer prompt; agent reads `/work/.major/item-<id>.json` (PRD + metadata), implements, runs `tsc --noEmit` and tests in sandbox until green or budget exhausted, commits, pushes, opens PR via `gh pr create --base dev --head major/work-item-<id>`
+- **Phase 2 — runReviewer**: fresh Claude Code subprocess, same sandbox, `git diff dev...HEAD`, posts comments via `gh pr review --comment`, sets `major/review` status check via `gh api`
 - **Heartbeat thread**: every 30s, POST `major-heartbeat`
 - **On Run end**: POST `major-finalize-run` with outcome, verification results, artifact refs
 

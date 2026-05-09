@@ -95,7 +95,7 @@ For incident response, start with `docs/runbook.md` § 2.2 (manual lease repair)
 
 ## 8. PR collision (two Items merge same path)
 
-**What it looks like.** Item A's PR merges. Item B's branch was based on `develop` before A merged; when B's PR is processed, the merge requires a rebase or has conflicts.
+**What it looks like.** Item A's PR merges. Item B's branch was based on `dev` before A merged; when B's PR is processed, the merge requires a rebase or has conflicts.
 
 **Detection.** GitHub mergeability check; PR's `mergeable` field becomes `false`. Webhook updates the PR's `derived_facts.mergeable=false`.
 

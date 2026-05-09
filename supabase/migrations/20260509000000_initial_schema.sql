@@ -35,7 +35,7 @@ create table major.work_items (
   expected_paths           text[] not null default '{}',
   git_repository_ref       text,                          -- 'MioMarker/healthbite' | 'MioMarker/healix'
   git_branch               text,                          -- 'major/work-item-<id>' (set after provisioning)
-  base_branch              text default 'develop',
+  base_branch              text default 'dev',
   pr_status                text default 'absent' check (pr_status in ('absent', 'open', 'merged', 'closed')),
   pr_url                   text,
   queue_rank               integer,

@@ -36,7 +36,7 @@ SPEC.md         System Specification (the source of truth)
 
 ## Workflow
 
-Trunk-based, two devs (jointly review). `develop` is integration; `main` is releases. Major's Items merge to `develop`. Releases are explicit `develop → main` merges + EAS builds (HealthBite) or Healix deploys.
+Trunk-based, two devs (jointly review). `dev` is integration; `main` is releases. Major's Items merge to `dev`. Releases are explicit `dev → main` merges + EAS builds (HealthBite) or Healix deploys.
 
 ## Getting started
 
