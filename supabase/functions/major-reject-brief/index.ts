@@ -1,6 +1,6 @@
-// supabase/functions/major-reject-item/index.ts
+// supabase/functions/major-reject-brief/index.ts
 //
-// POST /major-reject-item
+// POST /major-reject-brief
 //   body: { briefId: number, reason: string }
 //   200:  { briefId, status: 'wontfix' }
 //
@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
     }
 
     const { data: prev, error: fetchErr } = await auth.client
-      .from("work_items")
+      .from("briefs")
       .select("id, status")
       .eq("id", body.briefId)
       .single();
@@ -44,25 +44,25 @@ Deno.serve(async (req) => {
     }
 
     const { error: updErr } = await auth.client
-      .from("work_items")
+      .from("briefs")
       .update({ status: "wontfix" })
       .eq("id", body.briefId);
     if (updErr) {
-      console.error("[major-reject-item] update failed:", updErr);
+      console.error("[major-reject-brief] update failed:", updErr);
       return errorResponse(updErr.message, 500);
     }
 
     const baseDelivery = `reject-${body.briefId}-${Date.now()}`;
     await auth.client.from("events").insert([
       {
-        work_item_id: body.briefId,
+        brief_id: body.briefId,
         type: "rejected",
         actor: auth.actor,
         payload: { reason: body.reason, prev_status: prev.status },
         idempotency_key: deriveIdempotencyKey(body.briefId, "rejected", auth.actor, baseDelivery),
       },
       {
-        work_item_id: body.briefId,
+        brief_id: body.briefId,
         type: "status-transitioned",
         actor: auth.actor,
         payload: { from: prev.status, to: "wontfix" },
@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
 
     return jsonResponse({ briefId: body.briefId, status: "wontfix" });
   } catch (err) {
-    console.error("[major-reject-item]", err);
+    console.error("[major-reject-brief]", err);
     return errorResponse(err instanceof Error ? err.message : "Server error", 500);
   }
 });

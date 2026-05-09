@@ -18,9 +18,7 @@ export async function listBriefs(filters: ListBriefsFilters = {}): Promise<Brief
   }
   // API contract: GET ?status=&classification=&repo=&limit=&offset=
   // Returns { briefs: Brief[], total: number }. ageMaxHours is filtered client-side.
-  // (Edge function directory still named `major-list-items` until Phase 4 of
-  // the GITS rename; the response shape is already on the new vocabulary.)
-  const resp = await majorFetch<{ briefs: Brief[]; total: number }>("major-list-items", {
+  const resp = await majorFetch<{ briefs: Brief[]; total: number }>("major-list-briefs", {
     query: {
       status: filters.status,
       classification: filters.classification,
@@ -39,7 +37,7 @@ export async function getBrief(id: number, authToken?: string): Promise<BriefDet
   if (USE_MOCK) {
     return getMockBrief(id);
   }
-  return majorFetch<BriefDetail>(`major-get-item`, {
+  return majorFetch<BriefDetail>(`major-get-brief`, {
     query: { briefId: id },
     authToken,
   });
@@ -49,7 +47,7 @@ export async function listQaBriefs(authToken?: string): Promise<Brief[]> {
   if (USE_MOCK) {
     return listMockQaBriefs();
   }
-  const resp = await majorFetch<{ briefs: Brief[]; total: number }>("major-list-items", {
+  const resp = await majorFetch<{ briefs: Brief[]; total: number }>("major-list-briefs", {
     query: { status: "ready-for-review" },
     authToken,
   });
@@ -78,7 +76,7 @@ export async function rejectBrief(
   if (USE_MOCK) {
     return { briefId, status: "wontfix" };
   }
-  return majorFetch<{ briefId: number; status: "wontfix" }>("major-reject-item", {
+  return majorFetch<{ briefId: number; status: "wontfix" }>("major-reject-brief", {
     method: "POST",
     body: { briefId, reason },
     authToken,

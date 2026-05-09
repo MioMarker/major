@@ -1,11 +1,11 @@
-// supabase/functions/major-list-items/index.ts
+// supabase/functions/major-list-briefs/index.ts
 //
-// GET /major-list-items?status=&classification=&limit=&offset=&repo=
+// GET /major-list-briefs?status=&classification=&limit=&offset=&repo=
 //   200: { briefs: Brief[], total: number }
 //
-// Returns Brief rows (table is `work_items` until Phase 3) with optional
-// filters. Default sort is `queue_rank ASC NULLS LAST, created_at ASC` so
-// the Shell sees the highest-priority Briefs first.
+// Returns Brief rows with optional filters. Default sort is
+// `queue_rank ASC NULLS LAST, created_at ASC` so the Shell sees the
+// highest-priority Briefs first.
 //
 // Filters:
 //   - status         CSV (e.g., 'ready-for-agent,ready-for-review')
@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
     const offset = Math.max(0, Number(url.searchParams.get("offset") ?? 0));
 
     let query = auth.client
-      .from("work_items")
+      .from("briefs")
       .select(
         "id, status, classifications, expected_artifact_type, expected_paths, git_repository_ref, git_branch, base_branch, pr_status, pr_url, queue_rank, priority_class, placement_reason, source_session_id, current_revision_id, created_at, updated_at",
         { count: "exact" },
@@ -66,13 +66,13 @@ Deno.serve(async (req) => {
 
     const { data, error, count } = await query;
     if (error) {
-      console.error("[major-list-items] query failed:", error);
+      console.error("[major-list-briefs] query failed:", error);
       return errorResponse(error.message, 500);
     }
 
     return jsonResponse({ briefs: data ?? [], total: count ?? 0 });
   } catch (err) {
-    console.error("[major-list-items]", err);
+    console.error("[major-list-briefs]", err);
     return errorResponse(err instanceof Error ? err.message : "Server error", 500);
   }
 });

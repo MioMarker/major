@@ -5,8 +5,7 @@
 //   200: { renewedRun: boolean, leaseExpiresAt: string|null }
 //
 // The Shell posts this every ~30 seconds. It refreshes:
-//   - The Shell row's `heartbeat_at` (table is `runner_instances` until Phase 3
-//     renames it to `shells`).
+//   - The Shell row's `heartbeat_at` (table `shells`).
 //   - When `runId` is provided AND that run is still 'running' AND owned by
 //     this Shell: `runs.heartbeat_at` and `runs.lease_expires_at = now() + 5 min`.
 //
@@ -43,12 +42,12 @@ Deno.serve(async (req) => {
     const now = new Date();
 
     const upsertResult = await auth.client
-      .from("runner_instances")
+      .from("shells")
       .upsert({ id: body.shellId, heartbeat_at: now.toISOString() }, { onConflict: "id" })
       .select();
 
     if (upsertResult.error) {
-      console.error("[major-heartbeat] runner_instances upsert error:", upsertResult.error);
+      console.error("[major-heartbeat] shells upsert error:", upsertResult.error);
       return errorResponse(`upsert failed: ${upsertResult.error.message} (code=${upsertResult.error.code ?? "?"})`, 500);
     }
     console.log("[major-heartbeat] upserted shell row:", upsertResult.data?.length ?? 0, "rows");
@@ -62,7 +61,7 @@ Deno.serve(async (req) => {
       .from("runs")
       .update({ heartbeat_at: now.toISOString(), lease_expires_at: expiresAt })
       .eq("id", body.runId)
-      .eq("runner_id", body.shellId)
+      .eq("shell_id", body.shellId)
       .eq("outcome", "running")
       .select("id, lease_expires_at")
       .maybeSingle();

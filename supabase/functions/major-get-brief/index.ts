@@ -1,6 +1,6 @@
-// supabase/functions/major-get-item/index.ts
+// supabase/functions/major-get-brief/index.ts
 //
-// GET /major-get-item?briefId=<n>
+// GET /major-get-brief?briefId=<n>
 //   200: {
 //     brief: Brief,
 //     contentRevisions: BriefContentRevision[],   // newest first
@@ -14,11 +14,6 @@
 // One round-trip per relation (Postgres-side joins via embedded selects
 // would be cleaner once we lock the column shape; v1 keeps each query
 // explicit so payload shape evolution is obvious).
-//
-// Note (Phase 2 of GITS rename): the wire shape uses the new vocabulary
-// (`brief`, `briefId`). The underlying tables / columns
-// (`work_items`, `work_item_id`, `work_item_artifacts`, etc.) keep their
-// old names until Phase 3 catches up.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleOptions } from "../_shared/cors.ts";
@@ -42,30 +37,30 @@ Deno.serve(async (req) => {
     }
 
     const [brief, revisions, events, runs, artifacts, relAsParent, relAsChild] = await Promise.all([
-      auth.client.from("work_items").select("*").eq("id", briefId).single(),
+      auth.client.from("briefs").select("*").eq("id", briefId).single(),
       auth.client
-        .from("work_item_content_revisions")
+        .from("brief_content_revisions")
         .select("id, revision_number, content_md, author_actor, reason, created_at")
-        .eq("work_item_id", briefId)
+        .eq("brief_id", briefId)
         .order("revision_number", { ascending: false }),
       auth.client
         .from("events")
         .select("id, type, actor, payload, idempotency_key, run_id, created_at")
-        .eq("work_item_id", briefId)
+        .eq("brief_id", briefId)
         .order("created_at", { ascending: false })
         .limit(50),
       auth.client
         .from("runs")
         .select("*")
-        .eq("work_item_id", briefId)
+        .eq("brief_id", briefId)
         .order("started_at", { ascending: false }),
-      auth.client.from("work_item_artifacts").select("*").eq("work_item_id", briefId),
+      auth.client.from("brief_artifacts").select("*").eq("brief_id", briefId),
       auth.client
-        .from("work_item_relationships")
+        .from("brief_relationships")
         .select("id, parent_id, child_id, type, parent_review_requirement, excluded_reason, created_at")
         .eq("parent_id", briefId),
       auth.client
-        .from("work_item_relationships")
+        .from("brief_relationships")
         .select("id, parent_id, child_id, type, parent_review_requirement, excluded_reason, created_at")
         .eq("child_id", briefId),
     ]);
@@ -83,7 +78,7 @@ Deno.serve(async (req) => {
         .select("*")
         .in("run_id", runIds);
       if (vrErr) {
-        console.error("[major-get-item] verification fetch failed:", vrErr);
+        console.error("[major-get-brief] verification fetch failed:", vrErr);
       } else {
         verificationResults = vr ?? [];
       }
@@ -102,7 +97,7 @@ Deno.serve(async (req) => {
       },
     });
   } catch (err) {
-    console.error("[major-get-item]", err);
+    console.error("[major-get-brief]", err);
     return errorResponse(err instanceof Error ? err.message : "Server error", 500);
   }
 });

@@ -36,13 +36,13 @@ verify_jwt = false
 [functions.major-apply-change-set]
 verify_jwt = false
 
-[functions.major-list-items]
+[functions.major-list-briefs]
 verify_jwt = false
 
-[functions.major-get-item]
+[functions.major-get-brief]
 verify_jwt = false
 
-[functions.major-claim-item]
+[functions.major-claim-brief]
 verify_jwt = false
 
 [functions.major-finalize-run]
@@ -54,7 +54,7 @@ verify_jwt = false
 [functions.major-confirm-qa]
 verify_jwt = false
 
-[functions.major-reject-item]
+[functions.major-reject-brief]
 verify_jwt = false
 
 [functions.major-start-auto-triage]

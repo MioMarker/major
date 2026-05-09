@@ -2,9 +2,8 @@
 #
 # A single container = one Shell (per SPEC §Shell architecture).
 # It runs `shell/main.ts` as a long-lived daemon that:
-#   1. Heartbeats to Major's API to register itself in `major.runner_instances`.
-#      (Table renames to `shells` in Phase 3 of the GITS rename.)
-#   2. Polls `major-list-items?status=ready-for-agent` and attempts to claim.
+#   1. Heartbeats to Major's API to register itself in `major.shells`.
+#   2. Polls `major-list-briefs?status=ready-for-agent` and attempts to claim.
 #   3. On claim: clones the target repo, runs implementer + reviewer Tachikoma
 #      phases (each a fresh `claude` subprocess), finalizes the Run.
 #
@@ -105,7 +104,7 @@ WORKDIR /work
 #   MAJOR_API_BASE_URL          — Supabase functions root (no trailing slash)
 #   SHELL_ID                    — must be unique per running container; orchestrator
 #                                  uses this as the row id in the Shell table
-#                                  (`major.runner_instances` until Phase 3 → `major.shells`)
+#                                  (`major.shells`)
 #   GITHUB_TOKEN                — for `gh` CLI auth (PR create, status checks)
 #   SUPABASE_SERVICE_ROLE_KEY   — bearer for Major API calls; auth.ts service-role
 #                                  bypass requires X-Major-Shell-Id (sent by main.ts)

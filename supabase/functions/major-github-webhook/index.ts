@@ -99,15 +99,15 @@ async function handlePullRequest(
   const prUrl = pr.html_url as string;
 
   const { error: updErr } = await client
-    .from("work_items")
+    .from("briefs")
     .update({ pr_status: prStatus, pr_url: prUrl })
     .eq("id", briefId);
-  if (updErr) console.error("[major-github-webhook] work_items update:", updErr);
+  if (updErr) console.error("[major-github-webhook] briefs update:", updErr);
 
   await client
     .from("events")
     .insert({
-      work_item_id: briefId,
+      brief_id: briefId,
       type: `pr-${action}`,
       actor: "integration:github",
       payload: {
@@ -166,7 +166,7 @@ async function handleCheckRun(
   const branch = checkRun.head_branch as string | undefined;
   if (!branch) return;
   const { data: brief } = await client
-    .from("work_items")
+    .from("briefs")
     .select("id")
     .eq("git_branch", branch)
     .maybeSingle();
@@ -176,7 +176,7 @@ async function handleCheckRun(
   const { data: latestRun } = await client
     .from("runs")
     .select("id")
-    .eq("work_item_id", brief.id)
+    .eq("brief_id", brief.id)
     .order("started_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -224,7 +224,7 @@ async function handlePush(
 
   const branch = ref.replace("refs/heads/", "");
   const { data: brief } = await client
-    .from("work_items")
+    .from("briefs")
     .select("id")
     .eq("git_branch", branch)
     .maybeSingle();
@@ -233,7 +233,7 @@ async function handlePush(
   await client
     .from("events")
     .insert({
-      work_item_id: brief.id,
+      brief_id: brief.id,
       type: "git-push-observed",
       actor: "integration:github",
       payload: {

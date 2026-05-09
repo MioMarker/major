@@ -1,9 +1,9 @@
 // shell/main.ts — Major Shell daemon entry point.
 //
 // One container = one Shell. This process:
-//   1. Boots: validate env, register itself in major.runner_instances via
+//   1. Boots: validate env, register itself in major.shells via
 //      heartbeat, start a 30s heartbeat thread.
-//   2. Loops: poll major-claim-item; on claim, run implementer + (gated)
+//   2. Loops: poll major-claim-brief; on claim, run implementer + (gated)
 //      reviewer Tachikoma phases inside one shared sandbox checkout.
 //   3. Finalizes: record verifications + artifacts + outcome via
 //      major-finalize-run, then clean up the sandbox and loop.
@@ -13,16 +13,12 @@
 // API endpoints called (caller / payload assumptions):
 //   POST {MAJOR_API_BASE_URL}/major-heartbeat
 //        → register/refresh shell row + (if owned) renew lease
-//   POST {MAJOR_API_BASE_URL}/major-claim-item
+//   POST {MAJOR_API_BASE_URL}/major-claim-brief
 //        → atomic Run Start Transaction; returns claim ticket
 //   POST {MAJOR_API_BASE_URL}/major-finalize-run
 //        → Run Finalization Transaction; one call per Run
-//   GET  {MAJOR_API_BASE_URL}/major-list-items?status=ready-for-agent
+//   GET  {MAJOR_API_BASE_URL}/major-list-briefs?status=ready-for-agent
 //        → unused in v1 (claim is server-side queue-pop); kept for future
-//
-// Note (Phase 2 of GITS rename): the edge-function directory names above
-// (`major-claim-item`, `major-list-items`, etc.) keep their old names until
-// Phase 4. The wire payloads they carry are already on the new vocabulary.
 //
 // All endpoints share `Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>`
 // + `X-Major-Shell-Id: <SHELL_ID>`. The auth helper recognizes the
@@ -126,8 +122,7 @@ async function main(): Promise<void> {
   process.env.GH_TOKEN = env.githubToken;
   process.env.GITHUB_TOKEN = env.githubToken;
 
-  // Initial registration — INSERT INTO major.runner_instances ON CONFLICT UPDATE.
-  // (Table renames to `shells` in Phase 3.)
+  // Initial registration — INSERT INTO major.shells ON CONFLICT UPDATE.
   await callHeartbeat({ initial: true });
 
   // Heartbeat thread: every 30s, refresh the Shell row's heartbeat_at and
@@ -658,7 +653,7 @@ async function callClaimItem(): Promise<ClaimResponse | null> {
       supportedArtifactTypes: ["git-change", "triage-change-set"],
     },
   };
-  const resp = (await majorApiPost("major-claim-item", body)) as Partial<ClaimResponse> | null;
+  const resp = (await majorApiPost("major-claim-brief", body)) as Partial<ClaimResponse> | null;
   if (!resp || !resp.claimed) return null;
   return resp as ClaimResponse;
 }

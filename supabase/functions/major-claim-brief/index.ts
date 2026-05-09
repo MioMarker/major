@@ -1,6 +1,6 @@
-// supabase/functions/major-claim-item/index.ts
+// supabase/functions/major-claim-brief/index.ts
 //
-// POST /major-claim-item
+// POST /major-claim-brief
 //   body: {
 //     shellId: string,         // 'shell-A','shell-B'…
 //     briefId?: number,        // optional — claim a specific Brief
@@ -22,18 +22,14 @@
 //   409: { claimed: false }   — nothing eligible / lost the race
 //
 // Implements the Run Start Transaction. Delegates to the
-// `major.claim_next_item` RPC, which atomically:
+// `major.claim_next_brief` RPC, which atomically:
 //   1. SELECTs the highest-priority Shell-Eligible Brief with FOR UPDATE
 //      SKIP LOCKED (so concurrent Shells never collide).
 //   2. UPDATEs status → agent-running.
 //   3. INSERTs a `runs` row in 'running' state with lease + heartbeat.
 //   4. INSERTs `run-started` and `status-transitioned` Events.
 // Single Active Run Rule is enforced by the partial unique index on
-// `runs(work_item_id) where outcome='running'` — no two simultaneous Runs.
-//
-// Note (Phase 2 of GITS rename): the underlying tables / RPC / column names
-// (`work_items`, `claim_next_item`, `work_item_id`) keep their old names
-// until Phase 3. The wire shape is already on the new vocabulary.
+// `runs(brief_id) where outcome='running'` — no two simultaneous Runs.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleOptions } from "../_shared/cors.ts";
@@ -76,26 +72,25 @@ Deno.serve(async (req) => {
     );
 
     // Make sure the Shell row exists. The RPC has a FK on the Shell id.
-    // Table is still `runner_instances` until Phase 3 renames it to `shells`.
     await auth.client
-      .from("runner_instances")
+      .from("shells")
       .upsert({ id: body.shellId, heartbeat_at: new Date().toISOString() }, { onConflict: "id" });
 
-    const { data, error } = await auth.client.rpc("claim_next_item", {
-      p_runner_id: body.shellId,
-      p_specific_item_id: body.briefId ?? null,
+    const { data, error } = await auth.client.rpc("claim_next_brief", {
+      p_shell_id: body.shellId,
+      p_specific_brief_id: body.briefId ?? null,
       p_lease_minutes: lease,
       p_purpose: purpose,
       p_idempotency_key: idem,
     });
 
     if (error) {
-      console.error("[major-claim-item] RPC failed:", error);
+      console.error("[major-claim-brief] RPC failed:", error);
       return errorResponse(error.message, 500);
     }
 
     const row = Array.isArray(data) ? data[0] : data;
-    if (!row || row.item_id == null) {
+    if (!row || row.brief_id == null) {
       return jsonResponse({ claimed: false }, 409);
     }
 
@@ -104,16 +99,16 @@ Deno.serve(async (req) => {
     // Shell's TachikomaBriefSnapshot type expects (snake_case at the DB
     // boundary, camelCase at the API boundary).
     const [briefRes, runRes, revisionRes] = await Promise.all([
-      auth.client.from("work_items").select("*").eq("id", row.item_id).single(),
+      auth.client.from("briefs").select("*").eq("id", row.brief_id).single(),
       auth.client.from("runs").select("*").eq("id", row.run_id).single(),
       row.revision_id != null
-        ? auth.client.from("work_item_content_revisions")
+        ? auth.client.from("brief_content_revisions")
             .select("id, content_md").eq("id", row.revision_id).single()
         : Promise.resolve({ data: null, error: null }),
     ]);
 
     if (briefRes.error || !briefRes.data) {
-      return errorResponse(`work_items lookup failed: ${briefRes.error?.message ?? "no row"}`, 500);
+      return errorResponse(`briefs lookup failed: ${briefRes.error?.message ?? "no row"}`, 500);
     }
     if (runRes.error || !runRes.data) {
       return errorResponse(`runs lookup failed: ${runRes.error?.message ?? "no row"}`, 500);
@@ -151,13 +146,13 @@ Deno.serve(async (req) => {
       run: {
         id: run.id,
         purpose: run.purpose,
-        shellId: run.runner_id,
+        shellId: run.shell_id,
         leaseExpiresAt: run.lease_expires_at,
         inspectedRunId: run.inspected_run_id,
       },
     });
   } catch (err) {
-    console.error("[major-claim-item]", err);
+    console.error("[major-claim-brief]", err);
     return errorResponse(err instanceof Error ? err.message : "Server error", 500);
   }
 });

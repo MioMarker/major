@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
 
     // Snapshot the current revision so the auto-triage Run runs against a stable PRD.
     const { data: brief, error: fetchErr } = await auth.client
-      .from("work_items")
+      .from("briefs")
       .select("id, current_revision_id")
       .eq("id", body.briefId)
       .single();
@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
     const { data, error } = await auth.client
       .from("auto_triage_requests")
       .insert({
-        work_item_id: body.briefId,
+        brief_id: body.briefId,
         status: "requested",
         requested_actor: auth.actor,
         requested_revision_id: brief.current_revision_id ?? null,

@@ -53,13 +53,13 @@ docker run -d --name shell-A -e SHELL_ID=shell-A ... major-shell
 docker run -d --name shell-B -e SHELL_ID=shell-B ... major-shell
 ```
 
-The atomic claim path (`major-claim-item`) handles the race; only one Shell wins each Brief.
+The atomic claim path (`major-claim-brief`) handles the race; only one Shell wins each Brief.
 
 ## Environment variables
 
 | Var | Required | Purpose |
 |---|---|---|
-| `SHELL_ID` | yes | Unique id for this container; used as the row id in the Shell table (`major.runner_instances` until the Phase 3 schema migration renames it to `major.shells`). Must be stable across restarts of the same container. |
+| `SHELL_ID` | yes | Unique id for this container; used as the row id in the Shell table (`major.shells`). Must be stable across restarts of the same container. |
 | `MAJOR_API_BASE_URL` | yes | Supabase functions root (no trailing slash). E.g. `https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1`. |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | Sent as Bearer to Major's API alongside the `X-Major-Shell-Id` header. The auth helper recognizes the service-role bypass and attributes calls to `shell:<SHELL_ID>`. From Supabase dashboard → Project Settings → API → service_role secret. |
 | `GITHUB_TOKEN` | yes | For `gh` auth inside the sandbox (PR create, status checks, CI poll). Needs `repo`, `pull_requests:write`, `statuses:write`. |
@@ -73,7 +73,7 @@ The atomic claim path (`major-claim-item`) handles the race; only one Shell wins
 2. Calls `POST major-heartbeat` once with `initial: true` — this is where the Shell row is upserted into the Shell table.
 3. Spawns a 30s heartbeat thread (renews `heartbeat_at` and, if a Run is active, the Run's lease).
 4. Enters the main loop:
-   - `POST major-claim-item`. If no work, sleep 10s, repeat.
+   - `POST major-claim-brief`. If no work, sleep 10s, repeat.
    - On claim: `git clone` the target repo to `/work/<repo-name>/`, checkout `major/brief-<id>`.
    - **Phase 1** — implementer Tachikoma (`runSandboxAgent({ role: "implementer", ...})`).
    - Wait for CI on the resulting PR (poll `gh pr checks` every 30s, timeout 20 min).
@@ -106,7 +106,7 @@ If the CLI's flag names change in a future release, update the `spawn(...)` call
 
 ## Major API endpoints called
 
-These payload shapes are what `shell/` assumes; they will be checked against `functions/` in the integration phase. The edge-function directory names below keep their old `-item` suffix until Phase 4 renames them to `-brief`.
+These payload shapes are what `shell/` assumes; they will be checked against `functions/` in the integration phase.
 
 ### `POST /major-heartbeat`
 
@@ -120,7 +120,7 @@ Request:
 ```
 Response: `{ ok: true }` (no payload required).
 
-### `POST /major-claim-item`
+### `POST /major-claim-brief`
 
 Request:
 ```json

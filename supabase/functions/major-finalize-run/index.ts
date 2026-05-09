@@ -27,8 +27,8 @@
 // `major.finalize_run` RPC which atomically:
 //   1. UPDATE runs SET outcome, ended_at, cancellation_reason
 //   2. INSERT verification_results (one per check_name)
-//   3. INSERT work_item_artifacts (table renames to brief_artifacts in Phase 3)
-//   4. UPDATE work_items SET status = nextStatus
+//   3. INSERT brief_artifacts
+//   4. UPDATE briefs SET status = nextStatus
 //   5. INSERT events: run-ended, status-transitioned, [human-handoff]
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
     }
 
     const row = Array.isArray(data) ? data[0] : data;
-    return jsonResponse({ briefId: row?.item_id ?? null, runId: row?.run_id ?? null });
+    return jsonResponse({ briefId: row?.brief_id ?? null, runId: row?.run_id ?? null });
   } catch (err) {
     console.error("[major-finalize-run]", err);
     return errorResponse(err instanceof Error ? err.message : "Server error", 500);

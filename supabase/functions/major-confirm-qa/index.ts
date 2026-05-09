@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
 
     // Conditional update: only succeeds if the Brief is currently ready-for-review.
     const { data, error } = await auth.client
-      .from("work_items")
+      .from("briefs")
       .update({ status: "done" })
       .eq("id", body.briefId)
       .eq("status", "ready-for-review")
@@ -59,14 +59,14 @@ Deno.serve(async (req) => {
     const baseDelivery = `qa-confirm-${body.briefId}-${Date.now()}`;
     await auth.client.from("events").insert([
       {
-        work_item_id: body.briefId,
+        brief_id: body.briefId,
         type: "accepted",
         actor: auth.actor,
         payload: { reason: "qa-confirmed" },
         idempotency_key: deriveIdempotencyKey(body.briefId, "accepted", auth.actor, baseDelivery),
       },
       {
-        work_item_id: body.briefId,
+        brief_id: body.briefId,
         type: "status-transitioned",
         actor: auth.actor,
         payload: { from: "ready-for-review", to: "done" },
