@@ -1,9 +1,9 @@
-import type { ItemDetail, MajorEvent, Run, VerificationResult, WorkItem, WorkItemArtifact, WorkItemContentRevision, WorkItemRelationship } from "@/lib/types";
+import type { Brief, BriefArtifact, BriefContentRevision, BriefDetail, BriefRelationship, MajorEvent, Run, VerificationResult } from "@/lib/types";
 
 const now = () => new Date().toISOString();
 const ago = (mins: number) => new Date(Date.now() - mins * 60 * 1000).toISOString();
 
-export const MOCK_ITEMS: WorkItem[] = [
+export const MOCK_BRIEFS: Brief[] = [
   {
     id: 101,
     status: "ready-for-agent",
@@ -11,7 +11,7 @@ export const MOCK_ITEMS: WorkItem[] = [
     expected_artifact_type: "git-change",
     expected_paths: ["src/components/meals/**", "src/hooks/usePendingMealsStore.ts"],
     git_repository_ref: "MioMarker/healthbite",
-    git_branch: "major/work-item-101",
+    git_branch: "major/brief-101",
     base_branch: "dev",
     pr_status: "absent",
     pr_url: null,
@@ -30,7 +30,7 @@ export const MOCK_ITEMS: WorkItem[] = [
     expected_artifact_type: "git-change",
     expected_paths: ["src/services/meals/submitMealAsync.ts"],
     git_repository_ref: "MioMarker/healthbite",
-    git_branch: "major/work-item-102",
+    git_branch: "major/brief-102",
     base_branch: "dev",
     pr_status: "absent",
     pr_url: null,
@@ -49,7 +49,7 @@ export const MOCK_ITEMS: WorkItem[] = [
     expected_artifact_type: "git-change",
     expected_paths: ["src/components/MealReportsView.tsx"],
     git_repository_ref: "MioMarker/healthbite",
-    git_branch: "major/work-item-103",
+    git_branch: "major/brief-103",
     base_branch: "dev",
     pr_status: "open",
     pr_url: "https://github.com/MioMarker/healthbite/pull/271",
@@ -106,7 +106,7 @@ export const MOCK_ITEMS: WorkItem[] = [
     expected_artifact_type: "git-change",
     expected_paths: ["supabase/functions/analyze-meal-ai/**"],
     git_repository_ref: "MioMarker/healthbite",
-    git_branch: "major/work-item-106",
+    git_branch: "major/brief-106",
     base_branch: "dev",
     pr_status: "absent",
     pr_url: null,
@@ -125,7 +125,7 @@ export const MOCK_ITEMS: WorkItem[] = [
     expected_artifact_type: "git-change",
     expected_paths: ["docs/eval-pipeline.md"],
     git_repository_ref: "MioMarker/healthbite",
-    git_branch: "major/work-item-107",
+    git_branch: "major/brief-107",
     base_branch: "dev",
     pr_status: "merged",
     pr_url: "https://github.com/MioMarker/healthbite/pull/265",
@@ -144,7 +144,7 @@ export const MOCK_ITEMS: WorkItem[] = [
     expected_artifact_type: "git-change",
     expected_paths: ["src/lib/sentry.ts"],
     git_repository_ref: "MioMarker/healthbite",
-    git_branch: "major/work-item-108",
+    git_branch: "major/brief-108",
     base_branch: "dev",
     pr_status: "open",
     pr_url: "https://github.com/MioMarker/healthbite/pull/272",
@@ -158,11 +158,11 @@ export const MOCK_ITEMS: WorkItem[] = [
   },
 ];
 
-const REVISIONS_BY_ITEM: Record<number, WorkItemContentRevision[]> = {
+const REVISIONS_BY_BRIEF: Record<number, BriefContentRevision[]> = {
   101: [
     {
       id: 201,
-      work_item_id: 101,
+      brief_id: 101,
       revision_number: 1,
       content_md:
         "# Meal report empty-state polish\n\n## Acceptance Criteria\n- Empty state shows friendly illustration + CTA.\n- CTA opens log-meal flow.\n\n## Scope Boundaries\n- UI only; no backend writes.\n\n## Expected Paths\n- src/components/meals/**\n- src/hooks/usePendingMealsStore.ts\n",
@@ -174,7 +174,7 @@ const REVISIONS_BY_ITEM: Record<number, WorkItemContentRevision[]> = {
   102: [
     {
       id: 202,
-      work_item_id: 102,
+      brief_id: 102,
       revision_number: 1,
       content_md: "# Fix submitMealAsync race\n\nDouble-submit fires when network is slow. Acceptance: cannot submit twice within 5s.",
       author_actor: "human:paul",
@@ -185,7 +185,7 @@ const REVISIONS_BY_ITEM: Record<number, WorkItemContentRevision[]> = {
   103: [
     {
       id: 203,
-      work_item_id: 103,
+      brief_id: 103,
       revision_number: 2,
       content_md: "# MealReportsView v2 — chart polish (rev 2)\n\nAddressed reviewer feedback on color tokens.",
       author_actor: "agent:tachikoma",
@@ -194,7 +194,7 @@ const REVISIONS_BY_ITEM: Record<number, WorkItemContentRevision[]> = {
     },
     {
       id: 1203,
-      work_item_id: 103,
+      brief_id: 103,
       revision_number: 1,
       content_md: "# MealReportsView v2 — chart polish (rev 1)\n\nInitial revision.",
       author_actor: "human:jonathan",
@@ -204,15 +204,15 @@ const REVISIONS_BY_ITEM: Record<number, WorkItemContentRevision[]> = {
   ],
 };
 
-const RUNS_BY_ITEM: Record<number, Run[]> = {
+const RUNS_BY_BRIEF: Record<number, Run[]> = {
   102: [
     {
       id: 5001,
-      work_item_id: 102,
+      brief_id: 102,
       purpose: "execute",
       outcome: "running",
       cancellation_reason: null,
-      runner_id: "runner-A",
+      shell_id: "shell-A",
       started_against_revision_id: 202,
       claimed_at: ago(20),
       lease_expires_at: ago(-5),
@@ -226,11 +226,11 @@ const RUNS_BY_ITEM: Record<number, Run[]> = {
   103: [
     {
       id: 5002,
-      work_item_id: 103,
+      brief_id: 103,
       purpose: "execute",
       outcome: "succeeded",
       cancellation_reason: null,
-      runner_id: "runner-B",
+      shell_id: "shell-B",
       started_against_revision_id: 203,
       claimed_at: ago(180),
       lease_expires_at: ago(120),
@@ -242,11 +242,11 @@ const RUNS_BY_ITEM: Record<number, Run[]> = {
     },
     {
       id: 5003,
-      work_item_id: 103,
+      brief_id: 103,
       purpose: "review",
       outcome: "succeeded",
       cancellation_reason: null,
-      runner_id: "runner-B",
+      shell_id: "shell-B",
       started_against_revision_id: 203,
       claimed_at: ago(110),
       lease_expires_at: ago(80),
@@ -306,11 +306,11 @@ const VERIFICATION_BY_RUN: Record<number, VerificationResult[]> = {
   ],
 };
 
-const ARTIFACTS_BY_ITEM: Record<number, WorkItemArtifact[]> = {
+const ARTIFACTS_BY_BRIEF: Record<number, BriefArtifact[]> = {
   103: [
     {
       id: 9001,
-      work_item_id: 103,
+      brief_id: 103,
       run_id: 5002,
       artifact_type: "git-change",
       external_ref: "https://github.com/MioMarker/healthbite/pull/271",
@@ -321,7 +321,7 @@ const ARTIFACTS_BY_ITEM: Record<number, WorkItemArtifact[]> = {
   108: [
     {
       id: 9002,
-      work_item_id: 108,
+      brief_id: 108,
       run_id: null,
       artifact_type: "git-change",
       external_ref: "https://github.com/MioMarker/healthbite/pull/272",
@@ -331,21 +331,21 @@ const ARTIFACTS_BY_ITEM: Record<number, WorkItemArtifact[]> = {
   ],
 };
 
-const EVENTS_BY_ITEM: Record<number, MajorEvent[]> = {
+const EVENTS_BY_BRIEF: Record<number, MajorEvent[]> = {
   101: [
     {
       id: 11001,
-      work_item_id: 101,
+      brief_id: 101,
       run_id: null,
-      type: "item-created",
+      type: "brief-created",
       actor: "human:jonathan",
       payload: {},
-      idempotency_key: "item-created-101",
+      idempotency_key: "brief-created-101",
       created_at: ago(60 * 24),
     },
     {
       id: 11002,
-      work_item_id: 101,
+      brief_id: 101,
       run_id: null,
       type: "status-transitioned",
       actor: "major:auto-triage",
@@ -357,50 +357,50 @@ const EVENTS_BY_ITEM: Record<number, MajorEvent[]> = {
   103: [
     {
       id: 11003,
-      work_item_id: 103,
+      brief_id: 103,
       run_id: null,
-      type: "item-created",
+      type: "brief-created",
       actor: "human:jonathan",
       payload: {},
-      idempotency_key: "item-created-103",
+      idempotency_key: "brief-created-103",
       created_at: ago(60 * 48),
     },
     {
       id: 11004,
-      work_item_id: 103,
+      brief_id: 103,
       run_id: 5002,
       type: "run-started",
-      actor: "runner:runner-B",
+      actor: "shell:shell-B",
       payload: { purpose: "execute" },
       idempotency_key: "run-started-5002",
       created_at: ago(180),
     },
     {
       id: 11005,
-      work_item_id: 103,
+      brief_id: 103,
       run_id: 5002,
       type: "run-ended",
-      actor: "runner:runner-B",
+      actor: "shell:shell-B",
       payload: { outcome: "succeeded" },
       idempotency_key: "run-ended-5002",
       created_at: ago(115),
     },
     {
       id: 11006,
-      work_item_id: 103,
+      brief_id: 103,
       run_id: 5002,
       type: "artifact-produced",
-      actor: "runner:runner-B",
+      actor: "shell:shell-B",
       payload: { artifact_type: "git-change", pr_number: 271 },
       idempotency_key: "artifact-produced-9001",
       created_at: ago(115),
     },
     {
       id: 11007,
-      work_item_id: 103,
+      brief_id: 103,
       run_id: null,
       type: "status-transitioned",
-      actor: "runner:runner-B",
+      actor: "shell:shell-B",
       payload: { from: "agent-running", to: "ready-for-review" },
       idempotency_key: "status-transitioned-103-ready-for-review",
       created_at: ago(115),
@@ -408,7 +408,7 @@ const EVENTS_BY_ITEM: Record<number, MajorEvent[]> = {
   ],
 };
 
-const RELATIONSHIPS_BY_ITEM: Record<number, Array<WorkItemRelationship & { related_item: Pick<WorkItem, "id" | "status"> }>> = {
+const RELATIONSHIPS_BY_BRIEF: Record<number, Array<BriefRelationship & { related_brief: Pick<Brief, "id" | "status"> }>> = {
   103: [
     {
       id: 13001,
@@ -419,46 +419,46 @@ const RELATIONSHIPS_BY_ITEM: Record<number, Array<WorkItemRelationship & { relat
       excluded_reason: null,
       excluded_by_actor: null,
       created_at: ago(60 * 48),
-      related_item: { id: 100, status: "ready-for-review" },
+      related_brief: { id: 100, status: "ready-for-review" },
     },
   ],
 };
 
-export function listMockItems(filters: { status?: string; classification?: string } = {}): WorkItem[] {
-  let items = [...MOCK_ITEMS];
-  if (filters.status) items = items.filter((i) => i.status === filters.status);
+export function listMockBriefs(filters: { status?: string; classification?: string } = {}): Brief[] {
+  let briefs = [...MOCK_BRIEFS];
+  if (filters.status) briefs = briefs.filter((b) => b.status === filters.status);
   if (filters.classification) {
-    items = items.filter((i) =>
-      i.classifications.includes(filters.classification as never),
+    briefs = briefs.filter((b) =>
+      b.classifications.includes(filters.classification as never),
     );
   }
-  return items.sort((a, b) => {
+  return briefs.sort((a, b) => {
     const ar = a.queue_rank ?? Number.MAX_SAFE_INTEGER;
     const br = b.queue_rank ?? Number.MAX_SAFE_INTEGER;
     return ar - br;
   });
 }
 
-export function getMockItem(id: number): ItemDetail | null {
-  const item = MOCK_ITEMS.find((i) => i.id === id);
-  if (!item) return null;
-  const revisions = REVISIONS_BY_ITEM[id] ?? [];
+export function getMockBrief(id: number): BriefDetail | null {
+  const brief = MOCK_BRIEFS.find((b) => b.id === id);
+  if (!brief) return null;
+  const revisions = REVISIONS_BY_BRIEF[id] ?? [];
   return {
-    ...item,
-    current_revision: revisions.find((r) => r.id === item.current_revision_id) ?? null,
+    ...brief,
+    current_revision: revisions.find((r) => r.id === brief.current_revision_id) ?? null,
     revisions,
-    events: EVENTS_BY_ITEM[id] ?? [],
-    runs: RUNS_BY_ITEM[id] ?? [],
-    verification_results: (RUNS_BY_ITEM[id] ?? []).flatMap(
+    events: EVENTS_BY_BRIEF[id] ?? [],
+    runs: RUNS_BY_BRIEF[id] ?? [],
+    verification_results: (RUNS_BY_BRIEF[id] ?? []).flatMap(
       (r) => VERIFICATION_BY_RUN[r.id] ?? [],
     ),
-    artifacts: ARTIFACTS_BY_ITEM[id] ?? [],
-    relationships: RELATIONSHIPS_BY_ITEM[id] ?? [],
+    artifacts: ARTIFACTS_BY_BRIEF[id] ?? [],
+    relationships: RELATIONSHIPS_BY_BRIEF[id] ?? [],
   };
 }
 
-export function listMockQaItems(): WorkItem[] {
-  return MOCK_ITEMS.filter((i) => i.status === "ready-for-review");
+export function listMockQaBriefs(): Brief[] {
+  return MOCK_BRIEFS.filter((b) => b.status === "ready-for-review");
 }
 
 export const MOCK_USED_NOW = now;

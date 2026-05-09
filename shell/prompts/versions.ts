@@ -1,7 +1,7 @@
 // Versioned constants for each Tachikoma role's prompt.
 //
 // Convention (mirrors HealthBite chat-with-ai): bump to today's date in
-// `<role>@YYYY-MM-DD` format on any prompt edit. The Runner Instance attaches
+// `<role>@YYYY-MM-DD` format on any prompt edit. The Shell attaches
 // the version to verification_results / telemetry on every Run so we can
 // correlate prompt changes to outcomes.
 //

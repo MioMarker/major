@@ -3,13 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
-import { confirmQa } from "@/lib/api/items";
+import { confirmQa } from "@/lib/api/briefs";
 
 export function ConfirmQaButton({
-  itemId,
+  briefId,
   prMerged,
 }: {
-  itemId: number;
+  briefId: number;
   prMerged: boolean;
 }) {
   const router = useRouter();
@@ -18,7 +18,7 @@ export function ConfirmQaButton({
 
   function handleClick() {
     startTransition(async () => {
-      await confirmQa(itemId);
+      await confirmQa(briefId);
       setConfirmed(true);
       router.refresh();
     });
@@ -27,7 +27,7 @@ export function ConfirmQaButton({
   if (confirmed) {
     return (
       <div className="text-xs text-emerald-700">
-        QA confirmed. Item moved to <code>done</code>.
+        QA confirmed. Brief moved to <code>done</code>.
       </div>
     );
   }
@@ -43,7 +43,7 @@ export function ConfirmQaButton({
       </Button>
       {!prMerged && (
         <p className="text-[11px] text-muted-foreground">
-          PR must be merged before QA confirmation moves the item to done.
+          PR must be merged before QA confirmation moves the brief to done.
         </p>
       )}
     </div>

@@ -1,19 +1,24 @@
 // supabase/functions/major-get-item/index.ts
 //
-// GET /major-get-item?itemId=<n>
+// GET /major-get-item?briefId=<n>
 //   200: {
-//     item: WorkItem,
-//     contentRevisions: ContentRevision[],   // newest first
-//     events: Event[],                       // last 50, newest first
+//     brief: Brief,
+//     contentRevisions: BriefContentRevision[],   // newest first
+//     events: Event[],                            // last 50, newest first
 //     runs: Run[],
 //     verificationResults: VerificationResult[],   // joined under their run
-//     artifacts: WorkItemArtifact[],
-//     relationships: { asParent: Relationship[], asChild: Relationship[] }
+//     artifacts: BriefArtifact[],
+//     relationships: { asParent: BriefRelationship[], asChild: BriefRelationship[] }
 //   }
 //
 // One round-trip per relation (Postgres-side joins via embedded selects
 // would be cleaner once we lock the column shape; v1 keeps each query
 // explicit so payload shape evolution is obvious).
+//
+// Note (Phase 2 of GITS rename): the wire shape uses the new vocabulary
+// (`brief`, `briefId`). The underlying tables / columns
+// (`work_items`, `work_item_id`, `work_item_artifacts`, etc.) keep their
+// old names until Phase 3 catches up.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleOptions } from "../_shared/cors.ts";
@@ -31,45 +36,45 @@ Deno.serve(async (req) => {
     if (!auth.ok) return errorResponse(auth.message, auth.status);
 
     const url = new URL(req.url);
-    const itemId = Number(url.searchParams.get("itemId"));
-    if (!itemId || Number.isNaN(itemId)) {
-      return errorResponse("Missing or invalid itemId", 400);
+    const briefId = Number(url.searchParams.get("briefId"));
+    if (!briefId || Number.isNaN(briefId)) {
+      return errorResponse("Missing or invalid briefId", 400);
     }
 
-    const [item, revisions, events, runs, artifacts, relAsParent, relAsChild] = await Promise.all([
-      auth.client.from("work_items").select("*").eq("id", itemId).single(),
+    const [brief, revisions, events, runs, artifacts, relAsParent, relAsChild] = await Promise.all([
+      auth.client.from("work_items").select("*").eq("id", briefId).single(),
       auth.client
         .from("work_item_content_revisions")
         .select("id, revision_number, content_md, author_actor, reason, created_at")
-        .eq("work_item_id", itemId)
+        .eq("work_item_id", briefId)
         .order("revision_number", { ascending: false }),
       auth.client
         .from("events")
         .select("id, type, actor, payload, idempotency_key, run_id, created_at")
-        .eq("work_item_id", itemId)
+        .eq("work_item_id", briefId)
         .order("created_at", { ascending: false })
         .limit(50),
       auth.client
         .from("runs")
         .select("*")
-        .eq("work_item_id", itemId)
+        .eq("work_item_id", briefId)
         .order("started_at", { ascending: false }),
-      auth.client.from("work_item_artifacts").select("*").eq("work_item_id", itemId),
+      auth.client.from("work_item_artifacts").select("*").eq("work_item_id", briefId),
       auth.client
         .from("work_item_relationships")
         .select("id, parent_id, child_id, type, parent_review_requirement, excluded_reason, created_at")
-        .eq("parent_id", itemId),
+        .eq("parent_id", briefId),
       auth.client
         .from("work_item_relationships")
         .select("id, parent_id, child_id, type, parent_review_requirement, excluded_reason, created_at")
-        .eq("child_id", itemId),
+        .eq("child_id", briefId),
     ]);
 
-    if (item.error || !item.data) {
-      return errorResponse(item.error?.message ?? "item not found", 404);
+    if (brief.error || !brief.data) {
+      return errorResponse(brief.error?.message ?? "brief not found", 404);
     }
 
-    // Verification results scoped to this item's runs.
+    // Verification results scoped to this Brief's runs.
     const runIds = (runs.data ?? []).map((r) => r.id);
     let verificationResults: unknown[] = [];
     if (runIds.length > 0) {
@@ -85,7 +90,7 @@ Deno.serve(async (req) => {
     }
 
     return jsonResponse({
-      item: item.data,
+      brief: brief.data,
       contentRevisions: revisions.data ?? [],
       events: events.data ?? [],
       runs: runs.data ?? [],

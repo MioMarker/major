@@ -1,8 +1,8 @@
 import { Badge } from "@/components/ui/badge";
-import type { WorkItemStatus } from "@/lib/types";
+import type { BriefStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const STATUS_TONE: Record<WorkItemStatus, string> = {
+const STATUS_TONE: Record<BriefStatus, string> = {
   "ready-for-triage": "bg-slate-200 text-slate-900",
   "needs-info": "bg-amber-200 text-amber-900",
   "ready-for-agent": "bg-sky-200 text-sky-900",
@@ -13,7 +13,7 @@ const STATUS_TONE: Record<WorkItemStatus, string> = {
   wontfix: "bg-stone-300 text-stone-700",
 };
 
-export function StatusBadge({ status }: { status: WorkItemStatus }) {
+export function StatusBadge({ status }: { status: BriefStatus }) {
   return (
     <Badge
       variant="outline"

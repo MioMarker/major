@@ -24,24 +24,24 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getItem } from "@/lib/api/items";
+import { getBrief } from "@/lib/api/briefs";
 import { formatRelativeAge } from "@/lib/utils";
-import { RejectItemButton } from "./_reject-button";
+import { RejectBriefButton } from "./_reject-button";
 
 const TERMINAL = new Set(["done", "wontfix"]);
 
 interface PageProps {
-  params: { itemId: string };
+  params: { briefId: string };
 }
 
-export default async function ItemDetailPage({ params }: PageProps) {
-  const itemId = Number(params.itemId);
-  if (Number.isNaN(itemId)) notFound();
-  const item = await getItem(itemId);
-  if (!item) notFound();
+export default async function BriefDetailPage({ params }: PageProps) {
+  const briefId = Number(params.briefId);
+  if (Number.isNaN(briefId)) notFound();
+  const brief = await getBrief(briefId);
+  if (!brief) notFound();
 
-  const isTerminal = TERMINAL.has(item.status);
-  const prArtifact = item.artifacts.find((a) => a.artifact_type === "git-change");
+  const isTerminal = TERMINAL.has(brief.status);
+  const prArtifact = brief.artifacts.find((a) => a.artifact_type === "git-change");
 
   return (
     <AppShell active="/">
@@ -49,20 +49,20 @@ export default async function ItemDetailPage({ params }: PageProps) {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="font-mono text-2xl font-semibold tracking-tight">
-              #{item.id}
+              #{brief.id}
             </h1>
-            <StatusBadge status={item.status} />
-            {item.classifications.map((c) => (
+            <StatusBadge status={brief.status} />
+            {brief.classifications.map((c) => (
               <Badge key={c} variant="secondary">
                 {c}
               </Badge>
             ))}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            {item.git_repository_ref ?? "no repo"} ·{" "}
-            {item.git_branch ?? "no branch"} ·{" "}
-            queue_rank {item.queue_rank ?? "—"} ·{" "}
-            created {formatRelativeAge(item.created_at)} ago
+            {brief.git_repository_ref ?? "no repo"} ·{" "}
+            {brief.git_branch ?? "no branch"} ·{" "}
+            queue_rank {brief.queue_rank ?? "—"} ·{" "}
+            created {formatRelativeAge(brief.created_at)} ago
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -75,7 +75,7 @@ export default async function ItemDetailPage({ params }: PageProps) {
               PR ↗
             </Link>
           )}
-          {!isTerminal && <RejectItemButton itemId={item.id} />}
+          {!isTerminal && <RejectBriefButton briefId={brief.id} />}
         </div>
       </div>
 
@@ -94,18 +94,18 @@ export default async function ItemDetailPage({ params }: PageProps) {
             <CardHeader>
               <CardTitle>Current revision</CardTitle>
               <CardDescription>
-                {item.current_revision
-                  ? `Rev ${item.current_revision.revision_number} by ${item.current_revision.author_actor}`
+                {brief.current_revision
+                  ? `Rev ${brief.current_revision.revision_number} by ${brief.current_revision.author_actor}`
                   : "No revisions yet"}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 font-mono text-xs">
-                {item.current_revision?.content_md ?? "—"}
+                {brief.current_revision?.content_md ?? "—"}
               </pre>
             </CardContent>
           </Card>
-          {item.revisions.length > 1 && (
+          {brief.revisions.length > 1 && (
             <Card className="mt-4">
               <CardHeader>
                 <CardTitle>Revision history</CardTitle>
@@ -121,7 +121,7 @@ export default async function ItemDetailPage({ params }: PageProps) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {item.revisions.map((rev) => (
+                    {brief.revisions.map((rev) => (
                       <TableRow key={rev.id}>
                         <TableCell className="font-mono text-xs">
                           {rev.revision_number}
@@ -153,7 +153,7 @@ export default async function ItemDetailPage({ params }: PageProps) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {item.events.map((event) => (
+                  {brief.events.map((event) => (
                     <TableRow key={event.id}>
                       <TableCell className="font-mono text-xs">{event.type}</TableCell>
                       <TableCell className="font-mono text-xs">{event.actor}</TableCell>
@@ -167,7 +167,7 @@ export default async function ItemDetailPage({ params }: PageProps) {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {item.events.length === 0 && (
+                  {brief.events.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
                         No events recorded.
@@ -189,13 +189,13 @@ export default async function ItemDetailPage({ params }: PageProps) {
                     <TableHead>Run</TableHead>
                     <TableHead>Purpose</TableHead>
                     <TableHead>Outcome</TableHead>
-                    <TableHead>Runner</TableHead>
+                    <TableHead>Shell</TableHead>
                     <TableHead>Started</TableHead>
                     <TableHead>Ended</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {item.runs.map((run) => (
+                  {brief.runs.map((run) => (
                     <TableRow key={run.id}>
                       <TableCell className="font-mono text-xs">#{run.id}</TableCell>
                       <TableCell>{run.purpose}</TableCell>
@@ -212,7 +212,7 @@ export default async function ItemDetailPage({ params }: PageProps) {
                           {run.outcome}
                         </Badge>
                       </TableCell>
-                      <TableCell className="font-mono text-xs">{run.runner_id ?? "—"}</TableCell>
+                      <TableCell className="font-mono text-xs">{run.shell_id ?? "—"}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {formatRelativeAge(run.started_at)} ago
                       </TableCell>
@@ -221,7 +221,7 @@ export default async function ItemDetailPage({ params }: PageProps) {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {item.runs.length === 0 && (
+                  {brief.runs.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                         No runs yet.
@@ -248,7 +248,7 @@ export default async function ItemDetailPage({ params }: PageProps) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {item.verification_results.map((vr) => (
+                  {brief.verification_results.map((vr) => (
                     <TableRow key={vr.id}>
                       <TableCell className="font-mono text-xs">{vr.check_name}</TableCell>
                       <TableCell>
@@ -269,7 +269,7 @@ export default async function ItemDetailPage({ params }: PageProps) {
                       <TableCell className="font-mono text-xs">#{vr.run_id}</TableCell>
                     </TableRow>
                   ))}
-                  {item.verification_results.length === 0 && (
+                  {brief.verification_results.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                         No verification results yet.
@@ -295,7 +295,7 @@ export default async function ItemDetailPage({ params }: PageProps) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {item.artifacts.map((artifact) => (
+                  {brief.artifacts.map((artifact) => (
                     <TableRow key={artifact.id}>
                       <TableCell className="font-mono text-xs">{artifact.artifact_type}</TableCell>
                       <TableCell className="text-xs">
@@ -319,7 +319,7 @@ export default async function ItemDetailPage({ params }: PageProps) {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {item.artifacts.length === 0 && (
+                  {brief.artifacts.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
                         No artifacts produced.
@@ -339,30 +339,30 @@ export default async function ItemDetailPage({ params }: PageProps) {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Type</TableHead>
-                    <TableHead>Related item</TableHead>
+                    <TableHead>Related brief</TableHead>
                     <TableHead>Review requirement</TableHead>
                     <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {item.relationships.map((rel) => (
+                  {brief.relationships.map((rel) => (
                     <TableRow key={rel.id}>
                       <TableCell>{rel.type}</TableCell>
                       <TableCell className="font-mono text-xs">
                         <Link
-                          href={`/items/${rel.related_item.id}`}
+                          href={`/briefs/${rel.related_brief.id}`}
                           className="text-primary underline-offset-4 hover:underline"
                         >
-                          #{rel.related_item.id}
+                          #{rel.related_brief.id}
                         </Link>
                       </TableCell>
                       <TableCell>{rel.parent_review_requirement}</TableCell>
                       <TableCell>
-                        <StatusBadge status={rel.related_item.status} />
+                        <StatusBadge status={rel.related_brief.status} />
                       </TableCell>
                     </TableRow>
                   ))}
-                  {item.relationships.length === 0 && (
+                  {brief.relationships.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
                         No relationships.

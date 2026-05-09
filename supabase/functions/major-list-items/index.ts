@@ -1,11 +1,11 @@
 // supabase/functions/major-list-items/index.ts
 //
 // GET /major-list-items?status=&classification=&limit=&offset=&repo=
-//   200: { items: WorkItem[], total: number }
+//   200: { briefs: Brief[], total: number }
 //
-// Returns work_items rows with optional filters. Default sort is
-// `queue_rank ASC NULLS LAST, created_at ASC` so the runner sees the
-// highest-priority Items first.
+// Returns Brief rows (table is `work_items` until Phase 3) with optional
+// filters. Default sort is `queue_rank ASC NULLS LAST, created_at ASC` so
+// the Shell sees the highest-priority Briefs first.
 //
 // Filters:
 //   - status         CSV (e.g., 'ready-for-agent,ready-for-review')
@@ -14,7 +14,7 @@
 //   - limit          1-200 (default 50)
 //   - offset         0+ (default 0)
 //
-// Used by both the UI (Items View) and the Runner (poll loop).
+// Used by both the UI (Briefs View) and the Shell (poll loop).
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleOptions } from "../_shared/cors.ts";
@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
       return errorResponse(error.message, 500);
     }
 
-    return jsonResponse({ items: data ?? [], total: count ?? 0 });
+    return jsonResponse({ briefs: data ?? [], total: count ?? 0 });
   } catch (err) {
     console.error("[major-list-items]", err);
     return errorResponse(err instanceof Error ? err.message : "Server error", 500);

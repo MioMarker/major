@@ -1,8 +1,9 @@
-# Major Runner Instance — base image for Tachikoma execution sandboxes.
+# Major Shell — base image for Tachikoma execution sandboxes.
 #
-# A single container = one Runner Instance (per SPEC §Runner architecture).
-# It runs `runner/main.ts` as a long-lived daemon that:
+# A single container = one Shell (per SPEC §Shell architecture).
+# It runs `shell/main.ts` as a long-lived daemon that:
 #   1. Heartbeats to Major's API to register itself in `major.runner_instances`.
+#      (Table renames to `shells` in Phase 3 of the GITS rename.)
 #   2. Polls `major-list-items?status=ready-for-agent` and attempts to claim.
 #   3. On claim: clones the target repo, runs implementer + reviewer Tachikoma
 #      phases (each a fresh `claude` subprocess), finalizes the Run.
@@ -61,15 +62,15 @@ USER agent
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/home/agent/.local/bin:$PATH"
 
-# Switch back to root to install runner code globally; final USER below.
+# Switch back to root to install Shell code globally; final USER below.
 USER root
 
 # ────────────────────────────────────────────────────────────────────
-# Runner code lives at /opt/major-runner. Compiled via `tsc` at build time
+# Shell code lives at /opt/major-shell. Compiled via `tsc` at build time
 # so the container can boot quickly (no ts-node overhead at runtime).
 # Layer order: package*.json first → cache npm install across code edits.
 # ────────────────────────────────────────────────────────────────────
-WORKDIR /opt/major-runner
+WORKDIR /opt/major-shell
 COPY package.json tsconfig.json ./
 RUN npm install --no-audit --no-fund
 
@@ -78,18 +79,18 @@ COPY prompts/ ./prompts/
 RUN npx tsc
 
 # tachikoma.ts resolves prompt paths via path.join(__dirname, "prompts").
-# After tsc, __dirname for the running .js file is /opt/major-runner/dist/,
+# After tsc, __dirname for the running .js file is /opt/major-shell/dist/,
 # so prompt .md files must live alongside the compiled output. We copy just
 # the markdown (NOT `cp -r prompts dist/prompts`) because `dist/prompts/`
 # already exists — tsc compiled `prompts/versions.ts` into it. A recursive
 # copy would create `dist/prompts/prompts/`.
 RUN cp prompts/*.md dist/prompts/
 
-# Make the runner code readable by the agent user.
-RUN chown -R agent:agent /opt/major-runner
+# Make the Shell code readable by the agent user.
+RUN chown -R agent:agent /opt/major-shell
 
 # ────────────────────────────────────────────────────────────────────
-# Per-Run sandbox root. Each Item gets a fresh subdir at
+# Per-Run sandbox root. Each Brief gets a fresh subdir at
 # /work/<repo-name>/ — wiped between Runs (see main.ts cleanupSandbox).
 # Mountable from the host if you want to inspect artifacts post-run.
 # ────────────────────────────────────────────────────────────────────
@@ -102,15 +103,16 @@ WORKDIR /work
 #
 # Required at runtime (read by main.ts; missing any → exit code 2):
 #   MAJOR_API_BASE_URL          — Supabase functions root (no trailing slash)
-#   RUNNER_ID                   — must be unique per running container; orchestrator
-#                                  uses this as the row id in major.runner_instances
+#   SHELL_ID                    — must be unique per running container; orchestrator
+#                                  uses this as the row id in the Shell table
+#                                  (`major.runner_instances` until Phase 3 → `major.shells`)
 #   GITHUB_TOKEN                — for `gh` CLI auth (PR create, status checks)
 #   SUPABASE_SERVICE_ROLE_KEY   — bearer for Major API calls; auth.ts service-role
-#                                  bypass requires X-Major-Runner-Id (sent by main.ts)
+#                                  bypass requires X-Major-Shell-Id (sent by main.ts)
 #   CLAUDE_CODE_OAUTH_TOKEN     — Max subscription token (preferred), OR
 #   ANTHROPIC_API_KEY           — API key fallback. Set at least one.
 # Optional:
-#   IMAGE_TAG           — recorded in runner_instances.metadata for provenance
+#   IMAGE_TAG           — recorded in the Shell row's metadata for provenance
 # ────────────────────────────────────────────────────────────────────
 ENV MAJOR_API_BASE_URL="https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1" \
     NODE_ENV="production"
@@ -119,5 +121,5 @@ ENV MAJOR_API_BASE_URL="https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1" \
 # inside the container, agent UID matters less, but defense-in-depth.
 USER agent
 
-# Compiled output lives at /opt/major-runner/dist/main.js (see tsconfig).
-ENTRYPOINT ["node", "/opt/major-runner/dist/main.js"]
+# Compiled output lives at /opt/major-shell/dist/main.js (see tsconfig).
+ENTRYPOINT ["node", "/opt/major-shell/dist/main.js"]

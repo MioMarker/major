@@ -1,8 +1,8 @@
 {
-  "name": "major-runner",
+  "name": "major-shell",
   "version": "0.1.0",
   "private": true,
-  "description": "Major Runner Instance — long-lived daemon that claims Work Items and invokes Tachikoma subprocesses.",
+  "description": "Major Shell — long-lived daemon that claims Briefs and invokes Tachikoma subprocesses.",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",

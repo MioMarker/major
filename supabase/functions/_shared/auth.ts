@@ -5,15 +5,15 @@
 //   1. Human users (UI): Authorization: Bearer <user-JWT> → validated via
 //      `supabase.auth.getUser(token)`. Works with HS256 and ES256.
 //
-//   2. Internal callers (Runner): Authorization: Bearer <service-role-key>
-//      + X-Major-Runner-Id: <runner-id>. Bypasses the user check because no
-//      `auth.users` row exists for runners; attribution is by runner_id.
+//   2. Internal callers (Shell): Authorization: Bearer <service-role-key>
+//      + X-Major-Shell-Id: <shell-id>. Bypasses the user check because no
+//      `auth.users` row exists for Shells; attribution is by shell_id.
 //      The service-role bypass is intentionally simple — it requires the
-//      X-Major-Runner-Id header so attribution is never ambiguous.
+//      X-Major-Shell-Id header so attribution is never ambiguous.
 //
 // Returns a discriminated union so callers branch with `if (!auth.ok)`
 // instead of null-checking each field. `kind` distinguishes 'human' vs
-// 'runner'; `user` and `userId` are null for runner callers.
+// 'shell'; `user` and `userId` are null for Shell callers.
 
 import { createClient, type SupabaseClient, type User } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -26,11 +26,11 @@ export type MajorClient = SupabaseClient<any, any, any>;
 export type AuthenticateResult =
   | {
       ok: true;
-      kind: "human" | "runner";
+      kind: "human" | "shell";
       client: MajorClient;
-      user: User | null; // null when kind === "runner"
-      userId: string | null; // null when kind === "runner"
-      actor: string; // "human:<email-local>" or "runner:<runner-id>"
+      user: User | null; // null when kind === "shell"
+      userId: string | null; // null when kind === "shell"
+      actor: string; // "human:<email-local>" or "shell:<shell-id>"
     }
   | { ok: false; status: number; message: string };
 
@@ -56,26 +56,26 @@ export async function authenticate(req: Request): Promise<AuthenticateResult> {
 
   const token = authHeader.slice("Bearer ".length);
 
-  // Service-role bypass: runner callers send the project's service role key
-  // as the bearer token plus an X-Major-Runner-Id header. Skip the user
-  // validation (no auth.users row exists for runners) and return a runner
-  // caller success with attribution = runner:<id>.
+  // Service-role bypass: Shell callers send the project's service role key
+  // as the bearer token plus an X-Major-Shell-Id header. Skip the user
+  // validation (no auth.users row exists for Shells) and return a Shell
+  // caller success with attribution = shell:<id>.
   if (token === serviceKey) {
-    const runnerId = req.headers.get("X-Major-Runner-Id")?.trim();
-    if (!runnerId) {
+    const shellId = req.headers.get("X-Major-Shell-Id")?.trim();
+    if (!shellId) {
       return {
         ok: false,
         status: 401,
-        message: "Service-role caller must set X-Major-Runner-Id",
+        message: "Service-role caller must set X-Major-Shell-Id",
       };
     }
     return {
       ok: true,
-      kind: "runner",
+      kind: "shell",
       client,
       user: null,
       userId: null,
-      actor: `runner:${runnerId}`,
+      actor: `shell:${shellId}`,
     };
   }
 

@@ -9,7 +9,7 @@ export const MOCK_SETTINGS: SettingsPayload = {
     "app.config.ts",
   ],
   mass_rerank_threshold: 5,
-  runner_pool_size_hint: 2,
+  shell_pool_size_hint: 2,
   auto_triage_enabled: true,
-  auto_triage_on_new_items: false,
+  auto_triage_on_new_briefs: false,
 };

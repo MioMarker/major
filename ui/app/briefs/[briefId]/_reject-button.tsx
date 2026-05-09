@@ -13,9 +13,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { rejectItem } from "@/lib/api/items";
+import { rejectBrief } from "@/lib/api/briefs";
 
-export function RejectItemButton({ itemId }: { itemId: number }) {
+export function RejectBriefButton({ briefId }: { briefId: number }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -23,7 +23,7 @@ export function RejectItemButton({ itemId }: { itemId: number }) {
 
   function handleReject() {
     startTransition(async () => {
-      await rejectItem(itemId, reason || "rejected via UI");
+      await rejectBrief(briefId, reason || "rejected via UI");
       setOpen(false);
       router.refresh();
     });
@@ -38,9 +38,9 @@ export function RejectItemButton({ itemId }: { itemId: number }) {
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Reject item #{itemId}</DialogTitle>
+          <DialogTitle>Reject brief #{briefId}</DialogTitle>
           <DialogDescription>
-            Routes the item to <code>wontfix</code>. Records a rejected Event.
+            Routes the brief to <code>wontfix</code>. Records a rejected Event.
           </DialogDescription>
         </DialogHeader>
         <Textarea

@@ -1,16 +1,16 @@
-# Major Runner Instance
+# Major Shell
 
-Long-lived Docker container that polls Major for `ready-for-agent` Work Items, claims one at a time, and runs Tachikoma (Claude Code) phases against a sandboxed clone of the target repository.
+Long-lived Docker container that polls Major for `ready-for-agent` Briefs, claims one at a time, and runs Tachikoma (Claude Code) phases against a sandboxed clone of the target repository.
 
-One container = one Runner Instance. To scale parallelism, run N containers with distinct `RUNNER_ID` values.
+One container = one Shell. To scale parallelism, run N containers with distinct `SHELL_ID` values.
 
-See `~/Projects/major/SPEC.md` §Runner architecture for the conceptual model.
+See `~/Projects/major/SPEC.md` §Shell architecture for the conceptual model.
 
 ## Build
 
 ```sh
-cd ~/Projects/major/runner
-docker build -t major-runner .
+cd ~/Projects/major/shell
+docker build -t major-shell .
 ```
 
 The build:
@@ -35,59 +35,59 @@ Deno is still installed in the image because target repos (HealthBite eval pipel
 
 ```sh
 docker run -d \
-  --name runner-A \
+  --name shell-A \
   --restart unless-stopped \
-  -e RUNNER_ID=runner-A \
+  -e SHELL_ID=shell-A \
   -e MAJOR_API_BASE_URL="https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1" \
   -e SUPABASE_SERVICE_ROLE_KEY="<service-role-key from Supabase dashboard>" \
   -e GITHUB_TOKEN="<gh PAT or installation token with PR + commit + status:write>" \
   -e CLAUDE_CODE_OAUTH_TOKEN="<from `claude setup-token` — Max subscription>" \
-  major-runner
+  major-shell
 # Alternative: -e ANTHROPIC_API_KEY="<sk-ant-...>" if you don't have a Max plan
 ```
 
-Multiple runners — run side-by-side with different `RUNNER_ID`s:
+Multiple Shells — run side-by-side with different `SHELL_ID`s:
 
 ```sh
-docker run -d --name runner-A -e RUNNER_ID=runner-A ... major-runner
-docker run -d --name runner-B -e RUNNER_ID=runner-B ... major-runner
+docker run -d --name shell-A -e SHELL_ID=shell-A ... major-shell
+docker run -d --name shell-B -e SHELL_ID=shell-B ... major-shell
 ```
 
-The atomic claim path (`major-claim-item`) handles the race; only one runner wins each Work Item.
+The atomic claim path (`major-claim-item`) handles the race; only one Shell wins each Brief.
 
 ## Environment variables
 
 | Var | Required | Purpose |
 |---|---|---|
-| `RUNNER_ID` | yes | Unique id for this container; used as the row id in `major.runner_instances`. Must be stable across restarts of the same container. |
+| `SHELL_ID` | yes | Unique id for this container; used as the row id in the Shell table (`major.runner_instances` until the Phase 3 schema migration renames it to `major.shells`). Must be stable across restarts of the same container. |
 | `MAJOR_API_BASE_URL` | yes | Supabase functions root (no trailing slash). E.g. `https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1`. |
-| `SUPABASE_SERVICE_ROLE_KEY` | yes | Sent as Bearer to Major's API alongside the `X-Major-Runner-Id` header. The auth helper recognizes the service-role bypass and attributes calls to `runner:<RUNNER_ID>`. From Supabase dashboard → Project Settings → API → service_role secret. |
+| `SUPABASE_SERVICE_ROLE_KEY` | yes | Sent as Bearer to Major's API alongside the `X-Major-Shell-Id` header. The auth helper recognizes the service-role bypass and attributes calls to `shell:<SHELL_ID>`. From Supabase dashboard → Project Settings → API → service_role secret. |
 | `GITHUB_TOKEN` | yes | For `gh` auth inside the sandbox (PR create, status checks, CI poll). Needs `repo`, `pull_requests:write`, `statuses:write`. |
 | `CLAUDE_CODE_OAUTH_TOKEN` | one of two | Max subscription token. Generate via `claude setup-token`. Preferred over the API key when you have a Max plan — same convention as Sandcastle. |
-| `ANTHROPIC_API_KEY` | one of two | API key fallback. Set this *or* `CLAUDE_CODE_OAUTH_TOKEN` (the runner exits if both are empty). |
-| `IMAGE_TAG` | no | Recorded in `runner_instances.metadata.imageTag` for provenance. |
+| `ANTHROPIC_API_KEY` | one of two | API key fallback. Set this *or* `CLAUDE_CODE_OAUTH_TOKEN` (the Shell exits if both are empty). |
+| `IMAGE_TAG` | no | Recorded in the Shell row's `metadata.imageTag` for provenance. |
 
 ## What happens on boot
 
 1. `main.ts` reads env, exits with code 2 if anything is missing.
-2. Calls `POST major-heartbeat` once with `initial: true` — this is where `runner_instances` is upserted.
+2. Calls `POST major-heartbeat` once with `initial: true` — this is where the Shell row is upserted into the Shell table.
 3. Spawns a 30s heartbeat thread (renews `heartbeat_at` and, if a Run is active, the Run's lease).
 4. Enters the main loop:
    - `POST major-claim-item`. If no work, sleep 10s, repeat.
-   - On claim: `git clone` the target repo to `/work/<repo-name>/`, checkout `major/work-item-<id>`.
+   - On claim: `git clone` the target repo to `/work/<repo-name>/`, checkout `major/brief-<id>`.
    - **Phase 1** — implementer Tachikoma (`runSandboxAgent({ role: "implementer", ...})`).
    - Wait for CI on the resulting PR (poll `gh pr checks` every 30s, timeout 20 min).
    - **Phase 2** — reviewer Tachikoma (only if implementer succeeded with a PR).
-   - `POST major-finalize-run` with verifications + artifacts + telemetry + outcome + next Item status.
+   - `POST major-finalize-run` with verifications + artifacts + telemetry + outcome + next Brief status.
    - Wipe `/work/<repo-name>/`, loop.
 
 ## Sandbox isolation strategy
 
-**Each Item gets a fresh `/work/<repo-name>/`**, cloned at claim time and removed at finalize time. The container's filesystem is the only sandbox boundary; we don't run Items in nested containers.
+**Each Brief gets a fresh `/work/<repo-name>/`**, cloned at claim time and removed at finalize time. The container's filesystem is the only sandbox boundary; we don't run Briefs in nested containers.
 
 `/work/.major/` is the per-Run scratch directory, used by the daemon to drop files the Tachikoma reads:
 
-- `/work/.major/item.json` — Work Item snapshot.
+- `/work/.major/brief.json` — Brief snapshot.
 - `/work/.major/implementer-output.json` — Phase 1 result, read by Phase 2.
 - `/work/.major/telemetry.jsonl` — telemetry the Tachikoma writes; daemon reads at finalize and posts.
 - `/work/.major/<role>.<runId>.transcript.txt` — full subprocess transcript; attached as a `log_artifact_ref`.
@@ -106,14 +106,14 @@ If the CLI's flag names change in a future release, update the `spawn(...)` call
 
 ## Major API endpoints called
 
-These payload shapes are what `runner/` assumes; they will be checked against `functions/` in the integration phase.
+These payload shapes are what `shell/` assumes; they will be checked against `functions/` in the integration phase. The edge-function directory names below keep their old `-item` suffix until Phase 4 renames them to `-brief`.
 
 ### `POST /major-heartbeat`
 
 Request:
 ```json
 {
-  "runnerId": "runner-A",
+  "shellId": "shell-A",
   "activeRunId": 42 | null,
   "metadata": { "imageTag": "...", "host": "...", "initial": true }
 }
@@ -125,7 +125,7 @@ Response: `{ ok: true }` (no payload required).
 Request:
 ```json
 {
-  "runnerId": "runner-A",
+  "shellId": "shell-A",
   "capabilities": { "supportedArtifactTypes": ["git-change", "triage-change-set"] }
 }
 ```
@@ -133,7 +133,7 @@ Response when claim succeeds:
 ```json
 {
   "claimed": true,
-  "workItem": {
+  "brief": {
     "id": 7,
     "title": "...",
     "status": "agent-running",
@@ -160,12 +160,12 @@ Response when no work: `{ "claimed": false }`.
 Request:
 ```json
 {
-  "runnerId": "runner-A",
+  "shellId": "shell-A",
   "runId": 101,
-  "workItemId": 7,
+  "briefId": 7,
   "outcome": "succeeded" | "failed" | "cancelled",
   "cancellationReason": "system-cancellation" | "lease-expired" | "human-cancellation" | "repair-acquisition" | null,
-  "nextWorkItemStatus": "ready-for-review" | "ready-for-agent" | "ready-for-human",
+  "nextBriefStatus": "ready-for-review" | "ready-for-agent" | "ready-for-human",
   "verifications": [
     {
       "checkName": "tachikoma-implementer",
@@ -184,7 +184,7 @@ Request:
   ],
   "telemetry": [],
   "summary": "implementer ok, PR https://..., reviewer pass",
-  "idempotencyKey": "runner:runner-A:run-finalize:101:succeeded"
+  "idempotencyKey": "shell:shell-A:run-finalize:101:succeeded"
 }
 ```
 Response: `{ ok: true }`.
@@ -198,17 +198,17 @@ Missing required env. Check the boot log: it lists missing vars by name.
 ### Container runs but never claims
 
 Check three things in order:
-1. `MAJOR_API_BASE_URL` reachable from inside the container? (`docker exec runner-A curl -i $MAJOR_API_BASE_URL/major-heartbeat`)
+1. `MAJOR_API_BASE_URL` reachable from inside the container? (`docker exec shell-A curl -i $MAJOR_API_BASE_URL/major-heartbeat`)
 2. `SUPABASE_AUTH_TOKEN` valid? (Major API returns 401 → bad token.)
-3. Is anything in `ready-for-agent`? Major UI Items View, filter by status. If queue is empty, the runner correctly idles.
+3. Is anything in `ready-for-agent`? Major UI Briefs View, filter by status. If queue is empty, the Shell correctly idles.
 
 ### Tachikoma subprocess hangs
 
-The wall-clock cap (`DEFAULT_TIMEOUT_MS_BY_ROLE` in `tachikoma.ts`) kills it after 30 min for implementer / 10 min for reviewer. If you hit this regularly, lower `--max-turns` or split the Item.
+The wall-clock cap (`DEFAULT_TIMEOUT_MS_BY_ROLE` in `tachikoma.ts`) kills it after 30 min for implementer / 10 min for reviewer. If you hit this regularly, lower `--max-turns` or split the Brief.
 
-### Heartbeat lapse → Item reaped
+### Heartbeat lapse → Brief reaped
 
-Major's `major-reaper` cron marks claims expired after `lease_expires_at`. If your runner is alive but heartbeats are timing out (e.g. slow Supabase region), the runner detects this on the next API call (lease ownership check fails) and aborts the Run gracefully — the next claim wins. Check `runner_instances.heartbeat_at` vs system time; large skew → fix container clock or network.
+Major's `major-reaper` cron marks claims expired after `lease_expires_at`. If your Shell is alive but heartbeats are timing out (e.g. slow Supabase region), the Shell detects this on the next API call (lease ownership check fails) and aborts the Run gracefully — the next claim wins. Check the Shell row's `heartbeat_at` vs system time; large skew → fix container clock or network.
 
 ### `gh pr create` fails inside the sandbox
 
@@ -220,10 +220,10 @@ Runs are independent — a failed cleanup of `/work/<repo>/` for Run N doesn't a
 
 ## Local development
 
-The runner is hard to run outside a container (it needs `gh`, Claude Code CLI, Deno, Node 20). For unit-level work on `tachikoma.ts` / `main.ts`:
+The Shell is hard to run outside a container (it needs `gh`, Claude Code CLI, Deno, Node 20). For unit-level work on `tachikoma.ts` / `main.ts`:
 
 ```sh
-cd ~/Projects/major/runner
+cd ~/Projects/major/shell
 npm install
 npm run typecheck   # `tsc --noEmit`
 npm run build       # `tsc` → dist/

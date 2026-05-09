@@ -10,19 +10,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { listItems } from "@/lib/api/items";
+import { listBriefs } from "@/lib/api/briefs";
 import { formatRelativeAge } from "@/lib/utils";
 import type {
-  WorkItemClassification,
-  WorkItemStatus,
+  BriefClassification,
+  BriefStatus,
 } from "@/lib/types";
-import { ItemsFilters } from "./_filters";
+import { BriefsFilters } from "./_filters";
 
 interface PageProps {
   searchParams: { status?: string; classification?: string };
 }
 
-const STATUS_VALUES: WorkItemStatus[] = [
+const STATUS_VALUES: BriefStatus[] = [
   "ready-for-triage",
   "needs-info",
   "ready-for-agent",
@@ -33,7 +33,7 @@ const STATUS_VALUES: WorkItemStatus[] = [
   "wontfix",
 ];
 
-const CLASSIFICATIONS: WorkItemClassification[] = [
+const CLASSIFICATIONS: BriefClassification[] = [
   "bug-fix",
   "feature",
   "refactor",
@@ -42,29 +42,29 @@ const CLASSIFICATIONS: WorkItemClassification[] = [
   "epic",
 ];
 
-export default async function ItemsViewPage({ searchParams }: PageProps) {
-  const status = STATUS_VALUES.includes(searchParams.status as WorkItemStatus)
-    ? (searchParams.status as WorkItemStatus)
+export default async function BriefsViewPage({ searchParams }: PageProps) {
+  const status = STATUS_VALUES.includes(searchParams.status as BriefStatus)
+    ? (searchParams.status as BriefStatus)
     : undefined;
   const classification = CLASSIFICATIONS.includes(
-    searchParams.classification as WorkItemClassification,
+    searchParams.classification as BriefClassification,
   )
-    ? (searchParams.classification as WorkItemClassification)
+    ? (searchParams.classification as BriefClassification)
     : undefined;
 
-  const items = await listItems({ status, classification });
+  const briefs = await listBriefs({ status, classification });
 
   return (
     <AppShell active="/">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Items</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Briefs</h1>
           <p className="text-sm text-muted-foreground">
             Filter by status / classification, sorted by queue rank.
           </p>
         </div>
       </div>
-      <ItemsFilters status={status} classification={classification} />
+      <BriefsFilters status={status} classification={classification} />
       <div className="mt-4 rounded-lg border bg-card">
         <Table>
           <TableHeader>
@@ -78,22 +78,22 @@ export default async function ItemsViewPage({ searchParams }: PageProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items.map((item) => (
-              <TableRow key={item.id}>
+            {briefs.map((brief) => (
+              <TableRow key={brief.id}>
                 <TableCell className="font-mono text-xs">
                   <Link
-                    href={`/items/${item.id}`}
+                    href={`/briefs/${brief.id}`}
                     className="text-primary underline-offset-4 hover:underline"
                   >
-                    #{item.id}
+                    #{brief.id}
                   </Link>
                 </TableCell>
                 <TableCell>
-                  <StatusBadge status={item.status} />
+                  <StatusBadge status={brief.status} />
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">
-                    {item.classifications.map((c) => (
+                    {brief.classifications.map((c) => (
                       <Badge key={c} variant="secondary">
                         {c}
                       </Badge>
@@ -101,25 +101,25 @@ export default async function ItemsViewPage({ searchParams }: PageProps) {
                   </div>
                 </TableCell>
                 <TableCell className="max-w-[280px] truncate font-mono text-xs text-muted-foreground">
-                  {item.expected_paths.length === 0
+                  {brief.expected_paths.length === 0
                     ? "—"
-                    : item.expected_paths.slice(0, 2).join(", ") +
-                      (item.expected_paths.length > 2
-                        ? ` (+${item.expected_paths.length - 2})`
+                    : brief.expected_paths.slice(0, 2).join(", ") +
+                      (brief.expected_paths.length > 2
+                        ? ` (+${brief.expected_paths.length - 2})`
                         : "")}
                 </TableCell>
                 <TableCell className="font-mono text-xs">
-                  {item.queue_rank ?? "—"}
+                  {brief.queue_rank ?? "—"}
                 </TableCell>
                 <TableCell className="font-mono text-xs text-muted-foreground">
-                  {formatRelativeAge(item.created_at)}
+                  {formatRelativeAge(brief.created_at)}
                 </TableCell>
               </TableRow>
             ))}
-            {items.length === 0 && (
+            {briefs.length === 0 && (
               <TableRow>
                 <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                  No items match these filters.
+                  No briefs match these filters.
                 </TableCell>
               </TableRow>
             )}

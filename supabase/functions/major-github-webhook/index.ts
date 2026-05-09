@@ -7,10 +7,10 @@
 //
 // Handles the GitHub webhook events Major cares about:
 //   - pull_request    — opened/reopened/closed/edited; updates pr_status,
-//                       pr_url on the matching work_item via the PR body's
-//                       `Major-item: <id>` Repository Correlation Receipt.
+//                       pr_url on the matching Brief via the PR body's
+//                       `Major-brief: <id>` Repository Correlation Receipt.
 //   - check_run       — completed; inserts verification_results for known
-//                       check names against the latest run on the item.
+//                       check names against the latest run on the Brief.
 //   - push            — informational only; emits an Event we can use to
 //                       drive UI badges, never alters lifecycle status.
 //
@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
 });
 
 // ─────────────────────────────────────────────────────────────────
-// pull_request — derive the item id from the PR body's correlation receipt
+// pull_request — derive the Brief id from the PR body's correlation receipt
 // ─────────────────────────────────────────────────────────────────
 async function handlePullRequest(
   client: ReturnType<typeof getAdminClient>,
@@ -86,10 +86,10 @@ async function handlePullRequest(
   const pr = payload.pull_request;
   if (!pr) return;
 
-  const itemId = parseItemIdFromBody(pr.body);
-  if (itemId === null) {
+  const briefId = parseBriefIdFromBody(pr.body);
+  if (briefId === null) {
     console.warn(
-      "[major-github-webhook] PR has no `Major-item:` receipt; skipping",
+      "[major-github-webhook] PR has no `Major-brief:` receipt; skipping",
       { pr_number: pr.number },
     );
     return;
@@ -101,13 +101,13 @@ async function handlePullRequest(
   const { error: updErr } = await client
     .from("work_items")
     .update({ pr_status: prStatus, pr_url: prUrl })
-    .eq("id", itemId);
+    .eq("id", briefId);
   if (updErr) console.error("[major-github-webhook] work_items update:", updErr);
 
   await client
     .from("events")
     .insert({
-      work_item_id: itemId,
+      work_item_id: briefId,
       type: `pr-${action}`,
       actor: "integration:github",
       payload: {
@@ -120,7 +120,7 @@ async function handlePullRequest(
         delivery,
       },
       idempotency_key: deriveIdempotencyKey(
-        itemId,
+        briefId,
         `pr-${action}`,
         "integration:github",
         delivery,
@@ -129,9 +129,11 @@ async function handlePullRequest(
     .select();
 }
 
-function parseItemIdFromBody(body: string | null | undefined): number | null {
+function parseBriefIdFromBody(body: string | null | undefined): number | null {
   if (!body) return null;
-  const m = body.match(/Major-item:\s*(\d+)/m);
+  // Accept the new `Major-brief:` receipt and fall back to the legacy
+  // `Major-item:` receipt so PRs created before the rename still correlate.
+  const m = body.match(/Major-brief:\s*(\d+)/m) ?? body.match(/Major-item:\s*(\d+)/m);
   return m ? Number(m[1]) : null;
 }
 
@@ -160,21 +162,21 @@ async function handleCheckRun(
     return;
   }
 
-  // Find the work item by branch (head_branch on the check_run).
+  // Find the Brief by branch (head_branch on the check_run).
   const branch = checkRun.head_branch as string | undefined;
   if (!branch) return;
-  const { data: item } = await client
+  const { data: brief } = await client
     .from("work_items")
     .select("id")
     .eq("git_branch", branch)
     .maybeSingle();
-  if (!item) return;
+  if (!brief) return;
 
-  // Latest run for this item.
+  // Latest run for this Brief.
   const { data: latestRun } = await client
     .from("runs")
     .select("id")
-    .eq("work_item_id", item.id)
+    .eq("work_item_id", brief.id)
     .order("started_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -211,20 +213,27 @@ async function handlePush(
   delivery: string,
 ): Promise<void> {
   const ref = payload.ref as string | undefined;
-  if (!ref || !ref.startsWith("refs/heads/major/work-item-")) return;
+  // Accept both the new `major/brief-<n>` branch convention (Phase 2) and
+  // the legacy `major/work-item-<n>` convention so historical branches still
+  // emit Events.
+  const isBriefBranch = !!ref && (
+    ref.startsWith("refs/heads/major/brief-") ||
+    ref.startsWith("refs/heads/major/work-item-")
+  );
+  if (!ref || !isBriefBranch) return;
 
   const branch = ref.replace("refs/heads/", "");
-  const { data: item } = await client
+  const { data: brief } = await client
     .from("work_items")
     .select("id")
     .eq("git_branch", branch)
     .maybeSingle();
-  if (!item) return;
+  if (!brief) return;
 
   await client
     .from("events")
     .insert({
-      work_item_id: item.id,
+      work_item_id: brief.id,
       type: "git-push-observed",
       actor: "integration:github",
       payload: {
@@ -234,7 +243,7 @@ async function handlePush(
         delivery,
       },
       idempotency_key: deriveIdempotencyKey(
-        item.id,
+        brief.id,
         "git-push-observed",
         "integration:github",
         delivery,

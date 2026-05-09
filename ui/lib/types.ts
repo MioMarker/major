@@ -1,8 +1,17 @@
 // Major UI types — derived from supabase/migrations/20260509000000_initial_schema.sql.
 // In Phase 3 these should be re-exported from `@/db/types` once that exists;
 // for now they are duplicated here so the UI typechecks standalone.
+//
+// Note (Phase 2 of GITS rename): the in-code identifiers below use the new
+// vocabulary (Brief / Shell / brief_id / shell_id). The Postgres tables they
+// map to are still named `work_items` / `runner_instances` / etc until the
+// Phase 3 schema migration. Snake_case fields below are the wire shape this
+// code expects from the edge functions; until Phase 3 the edge functions
+// will keep returning the old column names (e.g. `work_item_id`, `runner_id`).
+// We update the TypeScript here so the rename compiles end-to-end and so
+// the UI is ready for Phase 3.
 
-export type WorkItemStatus =
+export type BriefStatus =
   | "ready-for-triage"
   | "needs-info"
   | "ready-for-agent"
@@ -12,7 +21,7 @@ export type WorkItemStatus =
   | "done"
   | "wontfix";
 
-export type WorkItemClassification =
+export type BriefClassification =
   | "bug-fix"
   | "feature"
   | "refactor"
@@ -39,7 +48,7 @@ export type TriageSessionStatus = "open" | "closed";
 export type ChangeSetDecision = "proposed" | "accepted" | "rejected" | "superseded";
 
 export type ChangeOperationType =
-  | "create-item"
+  | "create-brief"
   | "add-content-revision"
   | "set-classifications"
   | "add-relationship"
@@ -47,7 +56,7 @@ export type ChangeOperationType =
   | "record-git-branch"
   | "set-ready-state"
   | "set-queue-rank"
-  | "transition-work-item";
+  | "transition-brief";
 
 export type ChangeOperationStatus =
   | "proposed"
@@ -58,10 +67,10 @@ export type ChangeOperationStatus =
   | "skipped"
   | "blocked";
 
-export interface WorkItem {
+export interface Brief {
   id: number;
-  status: WorkItemStatus;
-  classifications: WorkItemClassification[];
+  status: BriefStatus;
+  classifications: BriefClassification[];
   expected_artifact_type: ArtifactType | null;
   expected_paths: string[];
   git_repository_ref: string | null;
@@ -78,9 +87,9 @@ export interface WorkItem {
   updated_at: string;
 }
 
-export interface WorkItemContentRevision {
+export interface BriefContentRevision {
   id: number;
-  work_item_id: number;
+  brief_id: number;
   revision_number: number;
   content_md: string;
   author_actor: string;
@@ -88,7 +97,7 @@ export interface WorkItemContentRevision {
   created_at: string;
 }
 
-export interface WorkItemRelationship {
+export interface BriefRelationship {
   id: number;
   parent_id: number;
   child_id: number;
@@ -101,11 +110,11 @@ export interface WorkItemRelationship {
 
 export interface Run {
   id: number;
-  work_item_id: number;
+  brief_id: number;
   purpose: RunPurpose;
   outcome: RunOutcome;
   cancellation_reason: string | null;
-  runner_id: string | null;
+  shell_id: string | null;
   started_against_revision_id: number | null;
   claimed_at: string | null;
   lease_expires_at: string | null;
@@ -127,9 +136,9 @@ export interface VerificationResult {
   created_at: string;
 }
 
-export interface WorkItemArtifact {
+export interface BriefArtifact {
   id: number;
-  work_item_id: number;
+  brief_id: number;
   run_id: number | null;
   artifact_type: ArtifactType;
   external_ref: string | null;
@@ -138,7 +147,7 @@ export interface WorkItemArtifact {
 }
 
 export type EventType =
-  | "item-created"
+  | "brief-created"
   | "status-transitioned"
   | "run-started"
   | "run-ended"
@@ -153,7 +162,7 @@ export type EventType =
 
 export interface MajorEvent {
   id: number;
-  work_item_id: number | null;
+  brief_id: number | null;
   run_id: number | null;
   type: EventType;
   actor: string;
@@ -213,22 +222,22 @@ export interface PathBlockerConfig {
   updated_by: string;
 }
 
-export interface ItemDetail extends WorkItem {
-  current_revision: WorkItemContentRevision | null;
-  revisions: WorkItemContentRevision[];
+export interface BriefDetail extends Brief {
+  current_revision: BriefContentRevision | null;
+  revisions: BriefContentRevision[];
   events: MajorEvent[];
   runs: Run[];
   verification_results: VerificationResult[];
-  artifacts: WorkItemArtifact[];
+  artifacts: BriefArtifact[];
   relationships: Array<
-    WorkItemRelationship & { related_item: Pick<WorkItem, "id" | "status"> }
+    BriefRelationship & { related_brief: Pick<Brief, "id" | "status"> }
   >;
 }
 
 export interface SettingsPayload {
   protected_globs: string[];
   mass_rerank_threshold: number;
-  runner_pool_size_hint: number;
+  shell_pool_size_hint: number;
   auto_triage_enabled: boolean;
-  auto_triage_on_new_items: boolean;
+  auto_triage_on_new_briefs: boolean;
 }
