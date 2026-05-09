@@ -112,7 +112,7 @@ typecheck rather than at runtime.
 
 ## Single Active Run Rule
 
-The partial unique index on `runs(work_item_id) where outcome='running'` is
+The partial unique index on `runs(brief_id) where outcome='running'` is
 the DB invariant that makes the Run Start Transaction safe. AGENTS.md hard
 rule #4: never bypass it. If you need a parallel-run primitive, that's a new
 schema design and a new ADR.

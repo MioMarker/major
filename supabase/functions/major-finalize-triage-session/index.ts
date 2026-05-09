@@ -10,7 +10,7 @@
 //
 // ChangeOp shape:
 //   {
-//     operation_type: 'create-item' | 'add-content-revision' | ...,
+//     operation_type: 'create-brief' | 'add-content-revision' | ...,
 //     payload: object,                  // operation-specific (see supabase/migrations/20260509000001_rpc_functions.sql)
 //     sequence_index: integer
 //   }
@@ -19,7 +19,7 @@
 //   1. Insert a `triage_change_sets` row tied to this session.
 //   2. Insert one `triage_change_operations` row per op with derived idem keys.
 //   3. Run the path-blocker rule against (a) every `expected_paths` mentioned
-//      in `create-item` / transition-to-ready ops and (b) the rerank-op count.
+//      in `create-brief` / transition-to-ready ops and (b) the rerank-op count.
 //   4. If `needsHumanApply=true` → mark the change set, return it for the UI
 //      to surface in the Pending QA queue with a "needs human apply" badge.
 //      If false → call `major.apply_change_set` RPC which atomically applies

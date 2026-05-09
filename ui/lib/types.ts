@@ -1,15 +1,7 @@
-// Major UI types — derived from supabase/migrations/20260509000000_initial_schema.sql.
-// In Phase 3 these should be re-exported from `@/db/types` once that exists;
-// for now they are duplicated here so the UI typechecks standalone.
-//
-// Note (Phase 2 of GITS rename): the in-code identifiers below use the new
-// vocabulary (Brief / Shell / brief_id / shell_id). The Postgres tables they
-// map to are still named `work_items` / `runner_instances` / etc until the
-// Phase 3 schema migration. Snake_case fields below are the wire shape this
-// code expects from the edge functions; until Phase 3 the edge functions
-// will keep returning the old column names (e.g. `work_item_id`, `runner_id`).
-// We update the TypeScript here so the rename compiles end-to-end and so
-// the UI is ready for Phase 3.
+// Major UI types — derived from the Cyberbrain schema (post ADR 004 rename).
+// These should be re-exported from `@/db/types` eventually; for now they are
+// duplicated here so the UI typechecks standalone. In-code and wire shape
+// both use GITS vocabulary (Brief / Shell / brief_id / shell_id).
 
 export type BriefStatus =
   | "ready-for-triage"
