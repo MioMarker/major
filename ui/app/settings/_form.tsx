@@ -17,12 +17,12 @@ import type { SettingsPayload } from "@/lib/types";
 export function SettingsForm({ settings }: { settings: SettingsPayload }) {
   const [globsText, setGlobsText] = useState(settings.protected_globs.join("\n"));
   const [massRerank, setMassRerank] = useState(settings.mass_rerank_threshold);
-  const [runnerHint, setRunnerHint] = useState(settings.runner_pool_size_hint);
+  const [shellHint, setShellHint] = useState(settings.shell_pool_size_hint);
   const [autoTriageEnabled, setAutoTriageEnabled] = useState(
     settings.auto_triage_enabled,
   );
   const [autoTriageOnNew, setAutoTriageOnNew] = useState(
-    settings.auto_triage_on_new_items,
+    settings.auto_triage_on_new_briefs,
   );
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -34,9 +34,9 @@ export function SettingsForm({ settings }: { settings: SettingsPayload }) {
         .map((s) => s.trim())
         .filter(Boolean),
       mass_rerank_threshold: massRerank,
-      runner_pool_size_hint: runnerHint,
+      shell_pool_size_hint: shellHint,
       auto_triage_enabled: autoTriageEnabled,
-      auto_triage_on_new_items: autoTriageOnNew,
+      auto_triage_on_new_briefs: autoTriageOnNew,
     };
     startTransition(async () => {
       await updateSettings(next);
@@ -50,7 +50,7 @@ export function SettingsForm({ settings }: { settings: SettingsPayload }) {
         <CardHeader>
           <CardTitle>Path-blocker rule</CardTitle>
           <CardDescription>
-            One glob per line. Items whose <code>expected_paths</code>{" "}
+            One glob per line. Briefs whose <code>expected_paths</code>{" "}
             intersect any glob require human apply.
           </CardDescription>
         </CardHeader>
@@ -87,18 +87,18 @@ export function SettingsForm({ settings }: { settings: SettingsPayload }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Runner pool size hint</CardTitle>
+          <CardTitle>Shell pool size hint</CardTitle>
           <CardDescription>
-            Advisory only. Actual count is set by the runner host environment.
+            Advisory only. Actual count is set by the Shell host environment.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Input
             type="number"
             min={0}
-            value={runnerHint}
+            value={shellHint}
             onChange={(e) =>
-              setRunnerHint(Math.max(0, Number(e.target.value || 0)))
+              setShellHint(Math.max(0, Number(e.target.value || 0)))
             }
             className="max-w-xs"
           />
@@ -130,7 +130,7 @@ export function SettingsForm({ settings }: { settings: SettingsPayload }) {
               onChange={(e) => setAutoTriageOnNew(e.target.checked)}
               disabled={!autoTriageEnabled}
             />
-            Schedule auto-triage on new items
+            Schedule auto-triage on new briefs
           </label>
         </CardContent>
       </Card>

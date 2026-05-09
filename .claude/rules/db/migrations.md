@@ -12,7 +12,7 @@ Major's schema lives in `db/`. Migrations are append-only and monotonically numb
 
 - Files in `db/` are named `NNNN_short-description.sql` with a four-digit zero-padded number, monotonically increasing from `0001`.
 - The next number is always one greater than the highest existing number. Don't skip; don't reuse.
-- The description is short, kebab-case. Good: `0002_add-runner-pool-state.sql`. Bad: `0002_changes.sql`.
+- The description is short, kebab-case. Good: `0002_add-shell-pool-state.sql`. Bad: `0002_changes.sql`.
 
 ## `supabase db push` Workflow
 
@@ -53,9 +53,9 @@ Write the ADR first; reference it in the migration file's leading comment:
 ```sql
 -- 0007_add-priority-class-column.sql
 -- Implements docs/adr/006-priority-class-routing.md
--- This migration adds priority_class to work_items and updates Runner Scheduling.
+-- This migration adds priority_class to briefs and updates Shell Scheduling.
 
-ALTER TABLE major.work_items
+ALTER TABLE major.briefs
   ADD COLUMN priority_class TEXT NOT NULL DEFAULT 'standard';
 ```
 

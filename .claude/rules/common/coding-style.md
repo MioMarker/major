@@ -45,7 +45,7 @@ function addEvent(events: readonly Event[], next: Event) { return [...events, ne
 - Destructuring where it improves readability
 - Arrow functions for anonymous functions
 - Template literals for string interpolation
-- No `console.log` in shipped code — use a logger with prefix (`[FunctionName]`, `[Runner]`, etc.)
+- No `console.log` in shipped code — use a logger with prefix (`[FunctionName]`, `[Shell]`, etc.)
 
 ## File Organization
 
@@ -53,7 +53,7 @@ function addEvent(events: readonly Event[], next: Event) { return [...events, ne
 
 - 200–400 lines is typical; 800 is the upper bound. If you're past 600 and still adding, split.
 - One concern per file. A file should have a name that describes its single responsibility.
-- Organize by feature/domain, not by file type. `supabase/functions/major-claim-item/` is a folder, not a layer.
+- Organize by feature/domain, not by file type. `supabase/functions/major-claim-brief/` is a folder, not a layer.
 
 ## Schema-Validated User Input
 
@@ -66,12 +66,12 @@ All user input crossing a boundary (HTTP body, env var, file content, GitHub web
 ```ts
 import { z } from "zod";
 
-const ClaimItemRequest = z.object({
-  runner_instance_id: z.string().uuid(),
-  work_item_id: z.string().uuid(),
+const ClaimBriefRequest = z.object({
+  shell_id: z.string().uuid(),
+  brief_id: z.string().uuid(),
 });
 
-const parsed = ClaimItemRequest.safeParse(await req.json());
+const parsed = ClaimBriefRequest.safeParse(await req.json());
 if (!parsed.success) return errorResponse(parsed.error.message, 400);
 ```
 
@@ -79,7 +79,7 @@ if (!parsed.success) return errorResponse(parsed.error.message, 400);
 
 - Handle errors explicitly at every level. No silent swallowing.
 - User-facing surfaces (UI, API responses) get user-friendly messages.
-- Server-side logs include detailed context (`error.message`, `error.stack`, request id, Item id).
+- Server-side logs include detailed context (`error.message`, `error.stack`, request id, Brief id).
 - Never let an error message leak a stack trace or DB internals to the client.
 
 ## Code Quality Checklist

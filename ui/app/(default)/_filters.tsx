@@ -9,11 +9,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type {
-  WorkItemClassification,
-  WorkItemStatus,
+  BriefClassification,
+  BriefStatus,
 } from "@/lib/types";
 
-const STATUSES: Array<WorkItemStatus | "all"> = [
+const STATUSES: Array<BriefStatus | "all"> = [
   "all",
   "ready-for-triage",
   "needs-info",
@@ -25,7 +25,7 @@ const STATUSES: Array<WorkItemStatus | "all"> = [
   "wontfix",
 ];
 
-const CLASSIFICATIONS: Array<WorkItemClassification | "all"> = [
+const CLASSIFICATIONS: Array<BriefClassification | "all"> = [
   "all",
   "bug-fix",
   "feature",
@@ -35,12 +35,12 @@ const CLASSIFICATIONS: Array<WorkItemClassification | "all"> = [
   "epic",
 ];
 
-export function ItemsFilters({
+export function BriefsFilters({
   status,
   classification,
 }: {
-  status?: WorkItemStatus;
-  classification?: WorkItemClassification;
+  status?: BriefStatus;
+  classification?: BriefClassification;
 }) {
   const router = useRouter();
 

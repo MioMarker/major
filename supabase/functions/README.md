@@ -27,14 +27,14 @@ supabase/
     major-send-triage-message/
     major-finalize-triage-session/
     major-apply-change-set/
-    major-list-items/
-    major-get-item/
-    major-claim-item/
+    major-list-briefs/
+    major-get-brief/
+    major-claim-brief/
     major-finalize-run/
     major-heartbeat/
     major-github-webhook/
     major-confirm-qa/
-    major-reject-item/
+    major-reject-brief/
     major-start-auto-triage/
     major-reaper/
 ```
@@ -75,14 +75,14 @@ npx -y supabase functions deploy major-create-triage-session
 npx -y supabase functions deploy major-send-triage-message
 npx -y supabase functions deploy major-finalize-triage-session
 npx -y supabase functions deploy major-apply-change-set
-npx -y supabase functions deploy major-list-items
-npx -y supabase functions deploy major-get-item
-npx -y supabase functions deploy major-claim-item
+npx -y supabase functions deploy major-list-briefs
+npx -y supabase functions deploy major-get-brief
+npx -y supabase functions deploy major-claim-brief
 npx -y supabase functions deploy major-finalize-run
 npx -y supabase functions deploy major-heartbeat
 npx -y supabase functions deploy major-github-webhook --no-verify-jwt
 npx -y supabase functions deploy major-confirm-qa
-npx -y supabase functions deploy major-reject-item
+npx -y supabase functions deploy major-reject-brief
 npx -y supabase functions deploy major-start-auto-triage
 npx -y supabase functions deploy major-reaper --no-verify-jwt
 ```
@@ -145,11 +145,11 @@ edge layer via `supabase.rpc()`.
 A function body is one transaction — any RAISE rolls back the whole apply.
 This is necessary for:
 
-- **Run Start Transaction** (`claim_next_item`): row-locked `SELECT … FOR
+- **Run Start Transaction** (`claim_next_brief`): row-locked `SELECT … FOR
   UPDATE SKIP LOCKED`, status update, run insert, and Event inserts in one
   atomic step. The partial unique index on
-  `runs(work_item_id) WHERE outcome='running'` enforces the Single Active
-  Run Rule even if two runners race past the SKIP-LOCKED guard.
+  `runs(brief_id) WHERE outcome='running'` enforces the Single Active
+  Run Rule even if two Shells race past the SKIP-LOCKED guard.
 - **Run Finalization Transaction** (`finalize_run`): run update + verifications
   + artifacts + status transition + Events.
 - **Change Set apply** (`apply_change_set`): each operation in
@@ -176,7 +176,7 @@ should add a separate function with explicit role logic, not relax the
 ## Idempotency
 
 Every Event insert (and most retryable writes) carries an idempotency key
-derived per spec: `<work_item_id>:<event_type>:<source_actor>:<source_delivery_id>`.
+derived per spec: `<brief_id>:<event_type>:<source_actor>:<source_delivery_id>`.
 The `events.idempotency_key` column has a UNIQUE constraint, so re-inserts
 with the same key fail cleanly — `on conflict (idempotency_key) do nothing`
 is the standard pattern in the RPCs.

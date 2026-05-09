@@ -10,6 +10,13 @@ import type {
   ArtifactTypeContract,
   AutoTriageRequest,
   AutoTriageRequestStatus,
+  Brief,
+  BriefArtifact,
+  BriefArtifactPayload,
+  BriefClassification,
+  BriefContentRevision,
+  BriefRelationship,
+  BriefStatus,
   Event,
   EventPayload,
   EventType,
@@ -25,8 +32,8 @@ import type {
   RunLogArtifactRef,
   RunOutcome,
   RunPurpose,
-  RunnerInstance,
-  RunnerInstanceMetadata,
+  Shell,
+  ShellMetadata,
   TelemetryObservationType,
   TelemetryRecord,
   TriageChangeOperation,
@@ -43,20 +50,13 @@ import type {
   VerificationRequirednessSource,
   VerificationResult,
   VerificationResultPayload,
-  WorkItem,
-  WorkItemArtifact,
-  WorkItemArtifactPayload,
-  WorkItemClassification,
-  WorkItemContentRevision,
-  WorkItemRelationship,
-  WorkItemStatus,
 } from './types';
 
 // ────────────────────────────────────────────────────────────────────
 // Enum unions: ensure each variant is assignable.
 // ────────────────────────────────────────────────────────────────────
 
-const _wis: WorkItemStatus[] = [
+const _bs: BriefStatus[] = [
   'ready-for-triage',
   'needs-info',
   'ready-for-agent',
@@ -67,7 +67,7 @@ const _wis: WorkItemStatus[] = [
   'wontfix',
 ];
 
-const _wic: WorkItemClassification[] = ['bug-fix', 'feature', 'refactor', 'docs', 'parent', 'epic'];
+const _bc: BriefClassification[] = ['bug-fix', 'feature', 'refactor', 'docs', 'parent', 'epic'];
 const _at: ArtifactType[] = ['git-change', 'triage-change-set'];
 const _prs: PullRequestStatus[] = ['absent', 'open', 'merged', 'closed'];
 const _rt: RelationshipType[] = ['parent-child', 'blocks'];
@@ -90,7 +90,7 @@ const _vrs: VerificationRequirednessSource[] = [
 const _tss: TriageSessionStatus[] = ['open', 'closed'];
 const _tcsd: TriageChangeSetDecision[] = ['proposed', 'accepted', 'rejected', 'superseded'];
 const _tcot: TriageChangeOperationType[] = [
-  'create-item',
+  'create-brief',
   'add-content-revision',
   'set-classifications',
   'add-relationship',
@@ -98,7 +98,7 @@ const _tcot: TriageChangeOperationType[] = [
   'record-git-branch',
   'set-ready-state',
   'set-queue-rank',
-  'transition-work-item',
+  'transition-brief',
 ];
 const _tcos: TriageChangeOperationStatus[] = [
   'proposed',
@@ -117,7 +117,7 @@ const _atrs: AutoTriageRequestStatus[] = [
   'cancelled',
   'superseded',
 ];
-const _ak: ActorKind[] = ['human', 'agent', 'runner', 'integration', 'major'];
+const _ak: ActorKind[] = ['human', 'agent', 'shell', 'integration', 'major'];
 const _actor: ActorString = 'human:jonathan';
 const _ket: KnownEventType = 'run-started';
 const _et: EventType = 'something-new';
@@ -138,7 +138,7 @@ const _ts: TriageSession = {
   updatedAt: new Date(),
 };
 
-const _wi: WorkItem = {
+const _bf: Brief = {
   id: 1,
   status: 'ready-for-triage',
   classifications: ['feature'],
@@ -158,9 +158,9 @@ const _wi: WorkItem = {
   updatedAt: '2026-05-09T00:00:00Z',
 };
 
-const _rev: WorkItemContentRevision = {
+const _rev: BriefContentRevision = {
   id: 1,
-  workItemId: 1,
+  briefId: 1,
   revisionNumber: 1,
   contentMd: '# PRD',
   authorActor: 'human:jonathan',
@@ -168,7 +168,7 @@ const _rev: WorkItemContentRevision = {
   createdAt: '2026-05-09T00:00:00Z',
 };
 
-const _rel: WorkItemRelationship = {
+const _rel: BriefRelationship = {
   id: 1,
   parentId: 1,
   childId: 2,
@@ -180,22 +180,22 @@ const _rel: WorkItemRelationship = {
   createdAt: '2026-05-09T00:00:00Z',
 };
 
-const _ri: RunnerInstance = {
-  id: 'runner-A',
+const _sh: Shell = {
+  id: 'shell-A',
   heartbeatAt: '2026-05-09T00:00:00Z',
   startedAt: '2026-05-09T00:00:00Z',
   stoppedAt: null,
-  metadata: { containerId: 'abc', imageTag: 'major-runner:1.0', host: 'mac' },
+  metadata: { containerId: 'abc', imageTag: 'major-shell:1.0', host: 'mac' },
 };
-const _rim: RunnerInstanceMetadata = _ri.metadata;
+const _shm: ShellMetadata = _sh.metadata;
 
 const _run: Run = {
   id: 1,
-  workItemId: 1,
+  briefId: 1,
   purpose: 'execute',
   outcome: 'running',
   cancellationReason: null,
-  runnerId: 'runner-A',
+  shellId: 'shell-A',
   startedAgainstRevisionId: 1,
   claimedAt: '2026-05-09T00:00:00Z',
   leaseExpiresAt: '2026-05-09T01:00:00Z',
@@ -210,24 +210,24 @@ const _logRef: RunLogArtifactRef = _run.logArtifactRefs[0];
 
 const _atc: ArtifactTypeContract = {
   artifactType: 'git-change',
-  claimAuthority: ['runner'],
-  produceAuthority: ['runner', 'agent'],
-  reviewAuthority: ['runner', 'agent', 'human'],
+  claimAuthority: ['shell'],
+  produceAuthority: ['shell', 'agent'],
+  reviewAuthority: ['shell', 'agent', 'human'],
   verifyRequired: ['tsc-noemit', 'tests'],
   acceptanceAuthority: ['human'],
   description: null,
 };
 
-const _wia: WorkItemArtifact = {
+const _ba: BriefArtifact = {
   id: 1,
-  workItemId: 1,
+  briefId: 1,
   runId: 1,
   artifactType: 'git-change',
   externalRef: 'https://github.com/x/y/pull/1',
   payload: { baseSha: 'aaa', headSha: 'bbb', prNumber: 1 },
   createdAt: '2026-05-09T00:00:00Z',
 };
-const _wiap: WorkItemArtifactPayload = _wia.payload;
+const _bap: BriefArtifactPayload = _ba.payload;
 
 const _vr: VerificationResult = {
   id: 1,
@@ -262,8 +262,8 @@ const _pbr: PathBlockerReason = {
 const _tco: TriageChangeOperation = {
   id: 1,
   changeSetId: 1,
-  operationType: 'transition-work-item',
-  payload: { type: 'transition-work-item', workItemId: 1, to: 'ready-for-agent' },
+  operationType: 'transition-brief',
+  payload: { type: 'transition-brief', briefId: 1, to: 'ready-for-agent' },
   status: 'proposed',
   idempotencyKey: 'tcs:1:op:0',
   appliedActor: null,
@@ -276,7 +276,7 @@ const _tco: TriageChangeOperation = {
 // Exercise discriminated union narrowing on the operation payload.
 function _narrowTriageOp(p: TriageChangeOperationPayload): string {
   switch (p.type) {
-    case 'create-item':
+    case 'create-brief':
       return p.contentMd;
     case 'add-content-revision':
       return p.contentMd;
@@ -292,16 +292,16 @@ function _narrowTriageOp(p: TriageChangeOperationPayload): string {
       return p.expectedArtifactType;
     case 'set-queue-rank':
       return String(p.queueRank);
-    case 'transition-work-item':
+    case 'transition-brief':
       return p.to;
   }
 }
 const _opResult: string = _narrowTriageOp(_tco.payload);
-const _resRef: TriageChangeOperationResultRef = { table: 'major.work_items', id: 1 };
+const _resRef: TriageChangeOperationResultRef = { table: 'major.briefs', id: 1 };
 
 const _atr: AutoTriageRequest = {
   id: 1,
-  workItemId: 1,
+  briefId: 1,
   status: 'requested',
   requestedActor: 'human:jonathan',
   requestedRevisionId: null,
@@ -313,12 +313,12 @@ const _atr: AutoTriageRequest = {
 
 const _ev: Event = {
   id: 1,
-  workItemId: 1,
+  briefId: 1,
   runId: 1,
   type: 'run-started',
-  actor: 'runner:runner-A',
+  actor: 'shell:shell-A',
   payload: { kind: 'run-started', runId: 1, purpose: 'execute' },
-  idempotencyKey: 'wi:1:ev:run-started:run:1',
+  idempotencyKey: 'bf:1:ev:run-started:run:1',
   createdAt: '2026-05-09T00:00:00Z',
 };
 
@@ -331,7 +331,7 @@ const _evKind: string = _eventKind(_ev.payload);
 
 const _tr: TelemetryRecord = {
   id: 1,
-  workItemId: 1,
+  briefId: 1,
   runId: 1,
   observationType: 'heartbeat-lapse',
   payload: { lastHeartbeatAt: '2026-05-09T00:00:00Z' },
@@ -350,8 +350,8 @@ const _ttm: TriageTranscriptMessage = _ts.transcript[0];
 
 // Reference everything to silence "unused" diagnostics in noUnusedLocals mode.
 export const _refs = {
-  _wis,
-  _wic,
+  _bs,
+  _bc,
   _at,
   _prs,
   _rt,
@@ -373,16 +373,16 @@ export const _refs = {
   _kto,
   _to,
   _ts,
-  _wi,
+  _bf,
   _rev,
   _rel,
-  _ri,
-  _rim,
+  _sh,
+  _shm,
   _run,
   _logRef,
   _atc,
-  _wia,
-  _wiap,
+  _ba,
+  _bap,
   _vr,
   _vrp,
   _tcs,

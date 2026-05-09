@@ -4,29 +4,31 @@ When two terms refer to the same thing, this file is the tiebreaker. `SPEC.md` d
 
 This file mirrors the grouping in `SPEC.md`'s "Primitives glossary" section. Each entry: name in **bold**, ≤ 3-sentence definition, then `_Avoid_:` listing phrases not to use.
 
+The component vocabulary (Brief, Shell, Cyberbrain) follows the Ghost in the Shell convention adopted in `docs/adr/004-ghost-in-the-shell-naming.md`.
+
 ---
 
 ## App boundary
 
 **Major** — The orchestrator described by `SPEC.md`. The canonical name; never abbreviated, never qualified with "system" or "platform" in code or docs.
-_Avoid_: "the orchestrator," "the system," "Major.io," "the agent runner" (Major contains a runner; it is not a runner).
+_Avoid_: "the orchestrator," "the system," "Major.io," "the agent runner" (Major dispatches Briefs to Shells; it is not a Shell).
 
-**Major App** — The implementation rooted at `~/Projects/major`. Includes DB schema, edge functions, UI, and the Runner image.
+**Major App** — The implementation rooted at `~/Projects/major`. Includes the Cyberbrain schema, edge functions, UI, and the Shell image.
 _Avoid_: "the app" (ambiguous with HealthBite/Healix), "the codebase" (ambiguous with the dependent repos).
 
-**Major UI** — The Next.js human surface deployed on Vercel. Renders Items, Triage Sessions, runs, artifacts, and Settings.
+**Major UI** — The Next.js human surface deployed on Vercel. Renders Briefs, Triage Sessions, runs, artifacts, and Settings.
 _Avoid_: "the dashboard," "the console," "the admin panel."
 
-**Major APIs** — The edge function surface under `supabase/functions/major-*`. The only programmatic entry into the Workflow Store.
+**Major APIs** — The edge function surface under `supabase/functions/major-*`. The only programmatic entry into the Cyberbrain.
 _Avoid_: "the backend," "the server," "Major core."
 
-**Work Items View** — The default UI navigation area showing the filterable Item list, sorted by `queue_rank`. Other UI surfaces (Triage, Pending QA, Settings, Item Detail) are reached from here.
-_Avoid_: "the queue UI," "the dashboard," "items list" (lowercase).
+**Briefs View** — The default UI navigation area showing the filterable Brief list, sorted by `queue_rank`. Other UI surfaces (Triage, Pending QA, Settings, Brief Detail) are reached from here.
+_Avoid_: "the queue UI," "the dashboard," "Work Items View" (pre-rename), "items list" (lowercase).
 
 **System Specification** — `~/Projects/major/SPEC.md`. The authoritative source for primitives, lifecycle, schema, and API surface.
 _Avoid_: "the spec doc," "design doc," "the architecture doc."
 
-**Triage / AFK Agent Loop** — The end-to-end workflow Major implements: intake → Triage Session → Items → Run → review → acceptance.
+**Triage / AFK Agent Loop** — The end-to-end workflow Major implements: intake → Triage Session → Briefs → Run → review → acceptance.
 _Avoid_: "the agent loop" (omits Triage), "the pipeline," "the flow."
 
 **First Implementation Scope** — The two artifact types implemented in v1: `git-change` (primary) and `triage-change-set` (output of Auto Triage Run). Other artifact types are deferred.
@@ -36,29 +38,31 @@ _Avoid_: "MVP scope," "phase one features," "v1 artifacts" (use the explicit nam
 
 ## Authoritative state
 
-**Workflow Store** — Major's authoritative state. The `major.*` schema in the dev Supabase project (`nuihvxluxdpdjgkvtdih.supabase.co`). Lifecycle decisions read this and only this.
-_Avoid_: "the database," "Major DB," "Postgres" (those are implementation details), "the store" (ambiguous).
+**Cyberbrain** — Major's authoritative state. The `major.*` schema in the dev Supabase project (`nuihvxluxdpdjgkvtdih.supabase.co`). Lifecycle decisions read this and only this.
+_Avoid_: "Workflow Store" (pre-rename), "the database," "Major DB," "Postgres" (those are implementation details), "the store" (ambiguous), "the DB" (implementation detail).
 
-**Workflow Primitive** — Anything stored in the Workflow Store: Work Items, Events, Runs, Artifacts, etc. The set of primitives is defined by this glossary plus `SPEC.md`'s schema overview.
+**Workflow Primitive** — Anything stored in the Cyberbrain: Briefs, Events, Runs, Artifacts, etc. The set of primitives is defined by this glossary plus `SPEC.md`'s schema overview.
 _Avoid_: "entity," "model," "record" (those are data-layer terms; Workflow Primitives are a domain concept).
 
-**Work Item** — The durable unit of intent. One Work Item = one engineering task. Has Status, Classification, Content (versioned), Metadata, and possibly Relationships.
-_Avoid_: "ticket," "issue" (GitHub Issues are not Items), "task," "story" (Agile baggage), "card."
+**Brief** — The durable unit of intent. One Brief = one engineering task — the crafted instruction + context the human hands to Major. Has Status, Classification, Content (versioned), Metadata, and possibly Relationships.
+_Avoid_: "Work Item" (pre-rename), "ticket," "issue" (GitHub Issues are not Briefs), "task," "story" (Agile baggage), "card."
 
-**Work Item Status** — Lifecycle position. Exactly one of `{ready-for-triage, needs-info, ready-for-agent, agent-running, ready-for-review, ready-for-human, done, wontfix}`. Stored as a column; never derived.
-_Avoid_: "state" (use "Status"; "state" colloquially overloads with the state machine), "stage," "phase" (those collide with Run phase terminology).
+**Work Item** — see Brief.
 
-**Work Item Classification** — The "kind of work" tag. One of `bug-fix | feature | refactor | docs | parent | epic`. Orthogonal to Status.
-_Avoid_: "type" (collides with `expected_artifact_type`), "category," "label" (label is a GitHub primitive).
+**Brief Status** — Lifecycle position. Exactly one of `{ready-for-triage, needs-info, ready-for-agent, agent-running, ready-for-review, ready-for-human, done, wontfix}`. Stored as a column; never derived.
+_Avoid_: "Work Item Status" (pre-rename), "state" (use "Status"; "state" colloquially overloads with the state machine), "stage," "phase" (those collide with Run phase terminology).
 
-**Work Item Relationship** — A typed edge between two Work Items. Edge types: `parent` (with Parent Review Requirement metadata) and `blocks` / `blocked-by`.
-_Avoid_: "link," "reference," "dependency" (use `blocks`/`blocked-by`).
+**Brief Classification** — The "kind of work" tag. One of `bug-fix | feature | refactor | docs | parent | epic`. Orthogonal to Status.
+_Avoid_: "Work Item Classification" (pre-rename), "type" (collides with `expected_artifact_type`), "category," "label" (label is a GitHub primitive).
+
+**Brief Relationship** — A typed edge between two Briefs. Edge types: `parent` (with Parent Review Requirement metadata) and `blocks` / `blocked-by`.
+_Avoid_: "Work Item Relationship" (pre-rename), "link," "reference," "dependency" (use `blocks`/`blocked-by`).
 
 **Parent Review Requirement** — Metadata on a parent relationship indicating whether the parent must approve child finalization. Values: `required` (default), `optional`, `excluded`.
 _Avoid_: "approval mode," "parent gating."
 
-**Blocked Work Item** — Derived; an Item with at least one unresolved required relationship. Not a stored Status.
-_Avoid_: "blocked status" (it isn't one), "stuck Item."
+**Blocked Brief** — Derived; a Brief with at least one unresolved required relationship. Not a stored Status.
+_Avoid_: "Blocked Work Item" (pre-rename), "blocked status" (it isn't one), "stuck Brief."
 
 **Missing Information Request** — Content convention required for `needs-info` Status. Names what info is missing and what would unblock.
 _Avoid_: "info request," "follow-up note," "blocker comment."
@@ -69,24 +73,24 @@ _Avoid_: "log entry," "audit event" (those are non-lifecycle; use Telemetry Reco
 **Telemetry Record** — Durable operational observation that does not change Status. Performance, retries, side observations. Distinct table from Events.
 _Avoid_: "log," "metric" (overloaded), "audit" (Events are the audit trail for lifecycle changes; Telemetry is everything else).
 
-**Idempotency Key** — `(work_item_id, event_type, source_actor, source_delivery_id)`. Required on every retryable Event/Verification/Run-Finalization/Change-Operation write.
+**Idempotency Key** — `(brief_id, event_type, source_actor, source_delivery_id)`. Required on every retryable Event/Verification/Run-Finalization/Change-Operation write.
 _Avoid_: "dedup key," "uniqueness key," "request id."
 
 ---
 
 ## Intent representation
 
-**Work Item Content** — Human-readable PRD in Markdown. Versioned via Content Revisions. Lifecycle code never reads this — it's free-form.
-_Avoid_: "description," "body," "PRD" (use "Content" or "Work Item Content"; "PRD" is fine in human-readable contexts but not the primitive name).
+**Brief Content** — Human-readable PRD in Markdown. Versioned via Content Revisions. Lifecycle code never reads this — it's free-form.
+_Avoid_: "Work Item Content" (pre-rename), "description," "body," "PRD" (use "Content" or "Brief Content"; "PRD" is fine in human-readable contexts but not the primitive name).
 
-**Work Item Content Revision** — A specific durable version of Content. Runs execute against a specific `revision_id`. Editing Content creates a new revision; never mutate in place.
-_Avoid_: "draft," "content edit," "version" (ambiguous with prompt versions and DB schema versions).
+**Brief Content Revision** — A specific durable version of Content. Runs execute against a specific `revision_id`. Editing Content creates a new revision; never mutate in place.
+_Avoid_: "Work Item Content Revision" (pre-rename), "draft," "content edit," "version" (ambiguous with prompt versions and DB schema versions).
 
-**Instruction Trust Boundary** — The principle that Work Item Content cannot override Major's policies (path-blocker, runner authority, verification rules, lifecycle transitions). Tachikoma prompts open by reaffirming this.
+**Instruction Trust Boundary** — The principle that Brief Content cannot override Major's policies (path-blocker, Shell authority, verification rules, lifecycle transitions). Tachikoma prompts open by reaffirming this.
 _Avoid_: "prompt safety," "agent guardrails," "content boundary."
 
 **Ready-for-Agent Content** — Content convention required before Status enters `ready-for-agent`. Must include Acceptance Criteria, Scope Boundaries, and expected paths.
-_Avoid_: "agent-ready content," "spec," "implementation brief."
+_Avoid_: "agent-ready content," "spec," "implementation brief" (lowercase, ambiguous with the primitive).
 
 **Ready-for-Agent Metadata** — Structured columns required before `ready-for-agent`: `expected_paths`, `expected_artifact_type`, `queue_rank`, `base_branch`, `git_repository_ref`.
 _Avoid_: "agent metadata," "claim metadata."
@@ -110,13 +114,13 @@ _Avoid_: "the transcript" (ambiguous), "chat log."
 **Triage Change Set** — Structured proposal mapping a Triage Session's outcome to store mutations. Composed of Triage Change Operations. Applied atomically.
 _Avoid_: "changeset" (one word), "diff," "patch," "Triage output."
 
-**Triage Change Operation** — A single inspectable mutation within a Change Set. Types: `add-content-revision`, `set-classifications`, `add-relationship`, `set-parent-review-requirement`, `record-git-branch`, `set-ready-state`, `set-queue-rank`, `transition-work-item`, `create-item` (composite).
+**Triage Change Operation** — A single inspectable mutation within a Change Set. Types: `add-content-revision`, `set-classifications`, `add-relationship`, `set-parent-review-requirement`, `record-git-branch`, `set-ready-state`, `set-queue-rank`, `transition-brief`, `create-brief` (composite).
 _Avoid_: "change op," "operation" (unqualified), "mutation."
 
-**Auto Triage Run** — Agent-driven Run with `purpose=triage`. Emits a Triage Change Set as its Work Item Artifact. Subject to the path-blocker rule like any other Change Set.
+**Auto Triage Run** — Agent-driven Run with `purpose=triage`. Emits a Triage Change Set as its Brief Artifact. Subject to the path-blocker rule like any other Change Set.
 _Avoid_: "triage agent run," "auto-triage," "triage automation."
 
-**Auto Triage Request** — Scheduling primitive that asks Major to perform an Auto Triage Run on an Item. At most one non-terminal request per Work Item.
+**Auto Triage Request** — Scheduling primitive that asks Major to perform an Auto Triage Run on a Brief. At most one non-terminal request per Brief.
 _Avoid_: "triage job," "triage queue entry."
 
 **Auto Triage Request Status** — One of `requested | running | completed | failed | cancelled | superseded`.
@@ -126,19 +130,19 @@ _Avoid_: "triage state."
 
 ## Actor and authority
 
-**Actor** — The principal accountable for a recorded action. One of `human | agent | runner | integration`.
+**Actor** — The principal accountable for a recorded action. One of `human | agent | shell | integration`.
 _Avoid_: "user" (collides with auth.users), "principal," "owner."
 
-**Agent** — Specifically Tachikoma (a Claude Code subprocess). Always runs under Runner accountability; an Agent never appears as the attributed Actor for state changes.
+**Agent** — Specifically Tachikoma (a Claude Code subprocess). Always runs under Shell accountability; an Agent never appears as the attributed Actor for state changes.
 _Avoid_: "AI," "the bot," "the model" (Tachikoma is a process, not the model).
 
-**Runner** — The workflow Actor accountable for Runs. Distinct from Runner Instance — `Runner` is the abstract role, `Runner Instance` is the container.
-_Avoid_: "agent host," "execution context," "worker."
+**Shell Actor** — The workflow Actor accountable for Runs. Distinct from a Shell instance — the `shell` Actor is the abstract role; a **Shell** is the concrete container.
+_Avoid_: "Runner" (pre-rename), "agent host," "execution context," "worker."
 
-**Runner Instance** — A concrete long-lived Docker container with id, heartbeat, lease, and working directory. One container = one Runner Instance.
-_Avoid_: "runner pod," "runner host," "container" (unqualified).
+**Shell** — A concrete long-lived Docker container with id, heartbeat, lease, and working directory. The "cyborg body" that hosts ephemeral Tachikoma "ghosts" — the Tachikoma loads in, works, dissolves; the Shell persists for the next one. One container = one Shell.
+_Avoid_: "Runner Instance" (pre-rename), "Runner" (pre-rename), "shell pod" (lowercase shell collides with Unix shell), "container" (unqualified). Capitalized **Shell** = a Major Shell; lowercase `shell` (`bash`, `zsh`, "shell out") = the Unix concept.
 
-**Actor Authority Boundary** — The rule defining which Actor type may perform which transition. Humans own accept/reject/wontfix/done; runners own start/finalize/produce content/produce artifacts; agents act under runner accountability.
+**Actor Authority Boundary** — The rule defining which Actor type may perform which transition. Humans own accept/reject/wontfix/done; Shells own start/finalize/produce content/produce artifacts; agents act under Shell accountability.
 _Avoid_: "permissions," "RBAC," "authority matrix."
 
 **Automated Acceptance Policy** — Opt-in primitive that, if set on an `artifact_type_contracts` row, allows that artifact type to enter `done` without a human accepting Actor. Primitive exists in v1; no policy is granted automation.
@@ -148,7 +152,7 @@ _Avoid_: "auto-accept," "auto-merge policy" (those collide with GitHub primitive
 
 ## Run primitives
 
-**Run** — A concrete attempt by an Actor on a Work Item. Has `purpose ∈ {execute, review, triage, repair}`, an `outcome`, coordination metadata, and produced artifacts.
+**Run** — A concrete attempt by an Actor on a Brief. Has `purpose ∈ {execute, review, triage, repair}`, an `outcome`, coordination metadata, and produced artifacts.
 _Avoid_: "job," "task execution," "build."
 
 **Lifecycle-Path Run** — A Run whose completion is required for the normal route through the state machine. Equivalent to `purpose=execute`.
@@ -160,51 +164,51 @@ _Avoid_: "review job," "review pass" (use "Phase 2" when describing the implemen
 **Repair Run** — A Run with `purpose=repair`. Inspects stale or inconsistent state; never concurrent with the original Run; may terminalize the original only with explicit authority-transfer reason and inspected evidence.
 _Avoid_: "recovery run," "fix-up run."
 
-**Single Active Run Rule** — DB invariant: at most one Run per Work Item with `outcome='running'`. Enforced by partial unique index on `runs(work_item_id) where outcome='running'`.
+**Single Active Run Rule** — DB invariant: at most one Run per Brief with `outcome='running'`. Enforced by partial unique index on `runs(brief_id) where outcome='running'`.
 _Avoid_: "exclusive run lock," "active run constraint."
 
-**Run Start Transaction** — Atomic operation that claims an Item, creates a `running` Run, records a `run-started` Event, attaches coordination metadata, and transitions the Work Item Status. The only legitimate door from `ready-for-agent` to `agent-running`.
+**Run Start Transaction** — Atomic operation that claims a Brief, creates a `running` Run, records a `run-started` Event, attaches coordination metadata, and transitions the Brief Status. The only legitimate door from `ready-for-agent` to `agent-running`.
 _Avoid_: "claim transaction," "run claim."
 
-**Run Finalization Transaction** — Atomic operation that records a terminal Run outcome, emits `run-ended` Event, persists produced artifacts and Verification Results, snapshots final coordination metadata, and sets the next Work Item Status.
+**Run Finalization Transaction** — Atomic operation that records a terminal Run outcome, emits `run-ended` Event, persists produced artifacts and Verification Results, snapshots final coordination metadata, and sets the next Brief Status.
 _Avoid_: "run completion," "finalize," "wrap-up" (use "Run Finalization Transaction" or "Run Finalization").
 
-**Run Coordination Metadata** — `claim`, `lease_expires_at`, `heartbeat_at`, `runner_instance_id`, `sandbox_ref`, `log_artifact_refs`. Folded into the `runs` row; not a separate table.
+**Run Coordination Metadata** — `claim`, `lease_expires_at`, `heartbeat_at`, `shell_id`, `sandbox_ref`, `log_artifact_refs`. Folded into the `runs` row; not a separate table.
 _Avoid_: "run metadata" (ambiguous; reserved for non-coordination fields), "claim metadata," "lease info."
 
-**Runner Scheduling** — The Runner Instance's selection of eligible Items. Sorted by `queue_rank` ascending; respects relationship eligibility; skips Items with active Auto Triage Runs.
-_Avoid_: "scheduling," "scheduler" (those imply a server-side scheduler; Runners self-select).
+**Shell Scheduling** — A Shell's selection of eligible Briefs. Sorted by `queue_rank` ascending; respects relationship eligibility; skips Briefs with active Auto Triage Runs.
+_Avoid_: "Runner Scheduling" (pre-rename), "scheduling," "scheduler" (those imply a server-side scheduler; Shells self-select).
 
-**Runner-Eligible Work Item** — An Item where `status='ready-for-agent'`, not Blocked, artifact contract is supported, and the named repository is accessible.
-_Avoid_: "claimable Item," "eligible Item" (use the full name to disambiguate from human-eligible).
+**Shell-Eligible Brief** — A Brief where `status='ready-for-agent'`, not Blocked, artifact contract is supported, and the named repository is accessible.
+_Avoid_: "Runner-Eligible Work Item" (pre-rename), "claimable Brief," "eligible Brief" (use the full name to disambiguate from human-eligible).
 
 ---
 
 ## Cancellation and handoff
 
-**Human Run Cancellation** — A cancellation requested by a human Actor. Always routes the Work Item to `ready-for-human`. Never auto-retries.
+**Human Run Cancellation** — A cancellation requested by a human Actor. Always routes the Brief to `ready-for-human`. Never auto-retries.
 _Avoid_: "user cancel," "manual stop."
 
 **System Run Cancellation** — A cancellation initiated by Major itself (e.g., lease expiry, sandbox crash). Routes to `ready-for-agent` if a clean retry is safe; otherwise `ready-for-human`.
 _Avoid_: "auto-cancel," "automatic cancellation," "system stop."
 
-**Human Handoff** — The Event recorded when an Item enters `ready-for-human`. Names the reason and the action expected from the human.
+**Human Handoff** — The Event recorded when a Brief enters `ready-for-human`. Names the reason and the action expected from the human.
 _Avoid_: "escalation," "manual handoff," "human review request."
 
 ---
 
 ## Artifact
 
-**Primary Expected Artifact Type** — The single `expected_artifact_type` set on an Item before `ready-for-agent`. One Item = one expected artifact.
+**Primary Expected Artifact Type** — The single `expected_artifact_type` set on a Brief before `ready-for-agent`. One Brief = one expected artifact.
 _Avoid_: "artifact type," "primary artifact."
 
 **Artifact Type Contract** — Static definition (one row in `major.artifact_type_contracts`) of claim/produce/review/verify/accept rules per artifact type. v1 contracts: `git-change`, `triage-change-set`.
 _Avoid_: "artifact rules," "contract" (unqualified).
 
-**Work Item Artifact** — A durable output produced by a Run: Git Change, Pull Request, or Triage Change Set. Stored in `major.work_item_artifacts`.
-_Avoid_: "deliverable," "output," "artifact" (unqualified — disambiguate from build artifacts).
+**Brief Artifact** — A durable output produced by a Run: Git Change, Pull Request, or Triage Change Set. Stored in `major.brief_artifacts`.
+_Avoid_: "Work Item Artifact" (pre-rename), "deliverable," "output," "artifact" (unqualified — disambiguate from build artifacts).
 
-**No-Change Completion** — Terminal completion of a Run that produces no artifact. Allowed only when Ready-for-Agent Content explicitly permits it (e.g., "investigate-only" Items).
+**No-Change Completion** — Terminal completion of a Run that produces no artifact. Allowed only when Ready-for-Agent Content explicitly permits it (e.g., "investigate-only" Briefs).
 _Avoid_: "empty run," "no-op completion."
 
 ---
@@ -227,38 +231,38 @@ _Avoid_: "required-by," "requiredness reason."
 **Git-Native Workflow** — A workflow that treats Git as a first-class concept (branches, commits, PRs are Workflow Primitives). Major's primary workflow is Git-Native; Auto Triage Runs are not.
 _Avoid_: "Git workflow" (ambiguous), "Git-based workflow."
 
-**Git Repository Reference** — Durable reference to a Git repo (e.g., `MioMarker/healthbite`). Each Item names exactly one. Stored on `work_items`.
+**Git Repository Reference** — Durable reference to a Git repo (e.g., `MioMarker/healthbite`). Each Brief names exactly one. Stored on `briefs`.
 _Avoid_: "repo," "repository" (unqualified — could be the dev Supabase reference too).
 
-**Git Branch** — A named ref. Major creates exactly one per Item: `major/work-item-<id>`, off `dev`.
+**Git Branch** — A named ref. Major creates exactly one per Brief: `major/brief-<id>`, off `dev`. Pre-rename branches (`major/work-item-<id>`) stay for history.
 _Avoid_: "branch" (unqualified — disambiguate from main/dev).
 
 **Git Commit Reference** — A `(base_sha, head_sha, compare_range)` tuple identifying a specific change set on a branch. Stored on a Run's coordination metadata.
 _Avoid_: "commit," "SHA" (those are sub-fields).
 
-**Git Change** — The artifact type representing a commit set or diff produced for a Work Item. The primary `expected_artifact_type` in v1.
+**Git Change** — The artifact type representing a commit set or diff produced for a Brief. The primary `expected_artifact_type` in v1.
 _Avoid_: "code change," "patch," "diff" (those are content; Git Change is the artifact primitive).
 
-**Pull Request** — Review/integration request for a Git Change. A Workflow Primitive; mirrors a GitHub PR but is authoritative in Major's store.
+**Pull Request** — Review/integration request for a Git Change. A Workflow Primitive; mirrors a GitHub PR but is authoritative in the Cyberbrain.
 _Avoid_: "PR" (acceptable in casual prose; use "Pull Request" in code and docs that define behavior), "merge request."
 
-**Pull Request Status** — `absent | open | merged | closed`. Distinct from Work Item Status; updated via webhook.
+**Pull Request Status** — `absent | open | merged | closed`. Distinct from Brief Status; updated via webhook.
 _Avoid_: "PR state," "merge status."
 
 **Pull Request Derived Fact** — Read-only facts mirrored from GitHub: approvals, requested changes, CI status, branch protection state, conflicts. Treated as Telemetry; never authoritative for lifecycle decisions.
 _Avoid_: "PR data," "GitHub state."
 
-**Pull Request Association Metadata** — Structured receipt embedded in a PR body that links it back to a Work Item.
+**Pull Request Association Metadata** — Structured receipt embedded in a PR body that links it back to a Brief.
 _Avoid_: "PR linkage," "PR association."
 
-**Repository Correlation Receipt** — Provider-side metadata linking a PR to a Work Item. In Major: the line `Major-item: <id>` in the PR body.
+**Repository Correlation Receipt** — Provider-side metadata linking a PR to a Brief. In Major: the line `Major-brief: <id>` in the PR body.
 _Avoid_: "PR backlink," "PR id," "correlation tag."
 
 ---
 
 ## Queue and routing
 
-**Queue Metadata** — Per-Item routing fields: `queue_rank` (int, sortable, lower runs first), optional `priority_class`, and `placement_reason` (free text from triage).
+**Queue Metadata** — Per-Brief routing fields: `queue_rank` (int, sortable, lower runs first), optional `priority_class`, and `placement_reason` (free text from triage).
 _Avoid_: "priority," "rank" (unqualified).
 
 **Path-Blocker Rule** — Major-specific deterministic check on every Triage Change Set apply. Compares `expected_paths` against an editable list of protected globs and applies a mass-rerank threshold.

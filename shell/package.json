@@ -1,0 +1,18 @@
+{
+  "name": "major-shell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Major Shell — long-lived daemon that claims Briefs and invokes Tachikoma subprocesses.",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/main.js",
+    "dev": "ts-node main.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0"
+  }
+}

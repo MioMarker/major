@@ -4,7 +4,7 @@
 //   body: {
 //     runId: number,
 //     outcome: 'succeeded' | 'failed' | 'cancelled',
-//     nextStatus: WorkItemStatus,
+//     nextStatus: BriefStatus,
 //     handoffReason?: string,           // required when nextStatus='ready-for-human'
 //     cancellationReason?: string,      // 'human-cancellation','system-cancellation','lease-expired','repair-acquisition'
 //     verificationResults?: Array<{
@@ -21,14 +21,14 @@
 //     }>,
 //     actor?: string                    // override; defaults to authenticated user actor
 //   }
-//   200: { itemId, runId }
+//   200: { briefId, runId }
 //
 // Implements the Run Finalization Transaction. Delegates to the
 // `major.finalize_run` RPC which atomically:
 //   1. UPDATE runs SET outcome, ended_at, cancellation_reason
 //   2. INSERT verification_results (one per check_name)
-//   3. INSERT work_item_artifacts
-//   4. UPDATE work_items SET status = nextStatus
+//   3. INSERT brief_artifacts
+//   4. UPDATE briefs SET status = nextStatus
 //   5. INSERT events: run-ended, status-transitioned, [human-handoff]
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
     }
 
     const row = Array.isArray(data) ? data[0] : data;
-    return jsonResponse({ itemId: row?.item_id ?? null, runId: row?.run_id ?? null });
+    return jsonResponse({ briefId: row?.brief_id ?? null, runId: row?.run_id ?? null });
   } catch (err) {
     console.error("[major-finalize-run]", err);
     return errorResponse(err instanceof Error ? err.message : "Server error", 500);

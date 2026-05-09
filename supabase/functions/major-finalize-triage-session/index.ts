@@ -79,16 +79,16 @@ Deno.serve(async (req) => {
       return errorResponse("path_blocker_config missing", 500);
     }
 
-    // Aggregate `expected_paths` across create-item + transition-to-ready ops,
+    // Aggregate `expected_paths` across create-brief + transition-to-ready ops,
     // and count rerank ops for the mass-rerank threshold check.
     const expectedPaths: string[] = [];
     let rerankOpCount = 0;
     for (const op of body.operations) {
-      if (op.operation_type === "create-item") {
+      if (op.operation_type === "create-brief") {
         const paths = (op.payload?.expected_paths ?? []) as unknown;
         if (Array.isArray(paths)) expectedPaths.push(...paths.filter((p): p is string => typeof p === "string"));
       }
-      if (op.operation_type === "transition-work-item" && op.payload?.to_status === "ready-for-agent") {
+      if (op.operation_type === "transition-brief" && op.payload?.to_status === "ready-for-agent") {
         const paths = (op.payload?.expected_paths ?? []) as unknown;
         if (Array.isArray(paths)) expectedPaths.push(...paths.filter((p): p is string => typeof p === "string"));
       }

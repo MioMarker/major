@@ -6,6 +6,8 @@ Accepted
 
 Date: 2026-05-09
 
+> Note: ADR 004 supersedes some component names — Work Item → Brief, Runner Instance → Shell, database/Workflow Store → Cyberbrain.
+
 ## Context
 
 Major's design draws directly from RelyMD's Foundry (`~/Projects/platform/common/docs/foundry/`), the production system that implements RelyMD's Triage / AFK Agent Loop. Foundry's domain model — Work Items, Triage Sessions, Triage Change Sets, Runs, Runner Instances, Verification Results, Repository Correlation Receipts — was studied directly and adopted with minimal renaming (`Foundry` → `Major`, schema `foundry.*` → `major.*`, branch prefix `foundry/` → `major/`).

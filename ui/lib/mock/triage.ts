@@ -72,7 +72,7 @@ const SAMPLE_OPERATIONS: TriageChangeOperation[] = [
   {
     id: 30001,
     change_set_id: 4001,
-    operation_type: "create-item",
+    operation_type: "create-brief",
     payload: {
       classifications: ["feature"],
       expected_artifact_type: "git-change",
@@ -81,7 +81,7 @@ const SAMPLE_OPERATIONS: TriageChangeOperation[] = [
       content_md: "# Meal report empty state polish\n...",
     },
     status: "proposed",
-    idempotency_key: "create-item-session-1-op-1",
+    idempotency_key: "create-brief-session-1-op-1",
     applied_actor: null,
     applied_at: null,
     resulting_record_ref: null,
@@ -125,7 +125,7 @@ export function mockAgentReply(human: string): TriageMessage {
   const ts = new Date().toISOString();
   return {
     role: "agent",
-    content: `Thanks. To turn that into a Work Item I need: (1) the affected paths, (2) acceptance criteria, (3) the user-facing outcome. Could you confirm? (You said: "${human.slice(0, 80)}${human.length > 80 ? "…" : ""}")`,
+    content: `Thanks. To turn that into a Brief I need: (1) the affected paths, (2) acceptance criteria, (3) the user-facing outcome. Could you confirm? (You said: "${human.slice(0, 80)}${human.length > 80 ? "…" : ""}")`,
     ts,
   };
 }

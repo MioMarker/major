@@ -2,8 +2,8 @@
 //
 // Pure (no I/O) implementation of Major's Path-Blocker rule. Caller fetches
 // `major.path_blocker_config` row id=1 and passes it in along with the set
-// of `expected_paths` accumulated across the Change Set's create-item /
-// transition-work-item ops, plus a count of `set-queue-rank` ops in the same
+// of `expected_paths` accumulated across the Change Set's create-brief /
+// transition-brief ops, plus a count of `set-queue-rank` ops in the same
 // set (for the mass-rerank threshold check).
 //
 // Decision: any `expected_paths` intersection with a protected glob OR a
@@ -35,7 +35,7 @@ export function checkPathBlocker(
     }
   }
 
-  // 2. Mass-rerank threshold — touching > N items' queue_rank tips the set into human apply.
+  // 2. Mass-rerank threshold — touching > N Briefs' queue_rank tips the set into human apply.
   if (rerankOpCount > config.massRerankThreshold) {
     reasons.push(
       `mass-rerank threshold tripped: ${rerankOpCount} rerank ops > threshold ${config.massRerankThreshold}`,

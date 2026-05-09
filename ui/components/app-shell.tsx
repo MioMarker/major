@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 const NAV: Array<{ href: string; label: string }> = [
-  { href: "/", label: "Items" },
+  { href: "/", label: "Briefs" },
   { href: "/triage", label: "Triage" },
   { href: "/qa", label: "Pending QA" },
   { href: "/settings", label: "Settings" },

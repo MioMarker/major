@@ -3,15 +3,15 @@
 # All major-* functions disable the Supabase platform gateway's JWT
 # pre-check (`verify_jwt = false`). Reasons:
 #
-#   - The Runner authenticates via the new-format service-role secret
+#   - The Shell authenticates via the new-format service-role secret
 #     (`sb_secret_…`), which is NOT a JWT — it has no segments and the
 #     gateway's pre-check rejects it with UNAUTHORIZED_INVALID_JWT_FORMAT
 #     before our function ever runs.
 #
 #   - Authentication is enforced by `_shared/auth.ts` inside every
 #     function: human callers go through `supabase.auth.getUser(token)`
-#     (works with HS256/ES256), and runner callers go through the
-#     service-role bypass + X-Major-Runner-Id header. The gateway's
+#     (works with HS256/ES256), and Shell callers go through the
+#     service-role bypass + X-Major-Shell-Id header. The gateway's
 #     pre-check is redundant for both paths.
 #
 #   - major-github-webhook authenticates by HMAC-SHA256 signature
@@ -36,13 +36,13 @@ verify_jwt = false
 [functions.major-apply-change-set]
 verify_jwt = false
 
-[functions.major-list-items]
+[functions.major-list-briefs]
 verify_jwt = false
 
-[functions.major-get-item]
+[functions.major-get-brief]
 verify_jwt = false
 
-[functions.major-claim-item]
+[functions.major-claim-brief]
 verify_jwt = false
 
 [functions.major-finalize-run]
@@ -54,7 +54,7 @@ verify_jwt = false
 [functions.major-confirm-qa]
 verify_jwt = false
 
-[functions.major-reject-item]
+[functions.major-reject-brief]
 verify_jwt = false
 
 [functions.major-start-auto-triage]
