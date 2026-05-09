@@ -89,8 +89,10 @@ docker run --rm \
   -e MAJOR_API_BASE_URL=https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1 \
   -e SUPABASE_SERVICE_ROLE_KEY=<service-role-key> \
   -e GITHUB_TOKEN=<fine-grained-PAT-with-repo-write-on-healthbite-and-healix> \
-  -e ANTHROPIC_API_KEY=<key> \
+  -e CLAUDE_CODE_OAUTH_TOKEN=<from `claude setup-token` — Max subscription> \
   major-runner:latest
+# Alternative if no Max plan: replace CLAUDE_CODE_OAUTH_TOKEN with
+#   -e ANTHROPIC_API_KEY=<sk-ant-...>
 ```
 
 The Runner authenticates to Major's API via `Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>` plus a `X-Major-Runner-Id` header. The auth helper (`supabase/functions/_shared/auth.ts`) recognizes the service-role bypass and attributes calls to `runner:<RUNNER_ID>`. No user JWT is involved; runners are not `auth.users` rows.

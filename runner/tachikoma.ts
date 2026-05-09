@@ -184,9 +184,12 @@ export async function runSandboxAgent(input: RunSandboxAgentInput): Promise<Tach
       cwd: sandboxDir,
       env: {
         ...process.env,
-        // ANTHROPIC_API_KEY is what the Claude Code CLI consumes. Major
-        // standardizes on the same env var name end-to-end, so this is just
-        // a passthrough; kept explicit to make the contract obvious in code.
+        // The Claude Code CLI auto-detects auth from either env var: Max
+        // subscription via CLAUDE_CODE_OAUTH_TOKEN (preferred) or API key
+        // via ANTHROPIC_API_KEY (fallback). Pass both through verbatim so
+        // the operator can pick either at `docker run` time. Mirrors
+        // Sandcastle's _shared/llm.mts pattern.
+        CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "",
         ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
         // Set CWD-derived env so the subprocess git config picks up the right
         // identity for any commits it makes.

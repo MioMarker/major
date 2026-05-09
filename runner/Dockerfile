@@ -99,7 +99,8 @@ WORKDIR /work
 #   GITHUB_TOKEN                — for `gh` CLI auth (PR create, status checks)
 #   SUPABASE_SERVICE_ROLE_KEY   — bearer for Major API calls; auth.ts service-role
 #                                  bypass requires X-Major-Runner-Id (sent by main.ts)
-#   ANTHROPIC_API_KEY           — for the Claude Code CLI subprocess
+#   CLAUDE_CODE_OAUTH_TOKEN     — Max subscription token (preferred), OR
+#   ANTHROPIC_API_KEY           — API key fallback. Set at least one.
 # Optional:
 #   IMAGE_TAG           — recorded in runner_instances.metadata for provenance
 # ────────────────────────────────────────────────────────────────────

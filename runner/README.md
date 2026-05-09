@@ -41,8 +41,9 @@ docker run -d \
   -e MAJOR_API_BASE_URL="https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1" \
   -e SUPABASE_SERVICE_ROLE_KEY="<service-role-key from Supabase dashboard>" \
   -e GITHUB_TOKEN="<gh PAT or installation token with PR + commit + status:write>" \
-  -e ANTHROPIC_API_KEY="<sk-ant-...>" \
+  -e CLAUDE_CODE_OAUTH_TOKEN="<from `claude setup-token` — Max subscription>" \
   major-runner
+# Alternative: -e ANTHROPIC_API_KEY="<sk-ant-...>" if you don't have a Max plan
 ```
 
 Multiple runners — run side-by-side with different `RUNNER_ID`s:
@@ -62,7 +63,8 @@ The atomic claim path (`major-claim-item`) handles the race; only one runner win
 | `MAJOR_API_BASE_URL` | yes | Supabase functions root (no trailing slash). E.g. `https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1`. |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | Sent as Bearer to Major's API alongside the `X-Major-Runner-Id` header. The auth helper recognizes the service-role bypass and attributes calls to `runner:<RUNNER_ID>`. From Supabase dashboard → Project Settings → API → service_role secret. |
 | `GITHUB_TOKEN` | yes | For `gh` auth inside the sandbox (PR create, status checks, CI poll). Needs `repo`, `pull_requests:write`, `statuses:write`. |
-| `ANTHROPIC_API_KEY` | yes | Anthropic API key the Claude Code subprocess consumes. Passed through to the subprocess unchanged. |
+| `CLAUDE_CODE_OAUTH_TOKEN` | one of two | Max subscription token. Generate via `claude setup-token`. Preferred over the API key when you have a Max plan — same convention as Sandcastle. |
+| `ANTHROPIC_API_KEY` | one of two | API key fallback. Set this *or* `CLAUDE_CODE_OAUTH_TOKEN` (the runner exits if both are empty). |
 | `IMAGE_TAG` | no | Recorded in `runner_instances.metadata.imageTag` for provenance. |
 
 ## What happens on boot

@@ -38,6 +38,9 @@ interface RunnerEnv {
   runnerId: string;
   githubToken: string;
   supabaseServiceRoleKey: string;
+  /** Max-subscription OAuth token (preferred). Mutually optional with anthropicApiKey. */
+  claudeCodeOauthToken: string;
+  /** API key fallback. Mutually optional with claudeCodeOauthToken. */
   anthropicApiKey: string;
 }
 
@@ -46,6 +49,7 @@ function readEnv(): RunnerEnv {
   const runnerId = (process.env.RUNNER_ID ?? "").trim();
   const githubToken = (process.env.GITHUB_TOKEN ?? "").trim();
   const supabaseServiceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
+  const claudeCodeOauthToken = (process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "").trim();
   const anthropicApiKey = (process.env.ANTHROPIC_API_KEY ?? "").trim();
 
   const missing: string[] = [];
@@ -53,7 +57,11 @@ function readEnv(): RunnerEnv {
   if (!runnerId) missing.push("RUNNER_ID");
   if (!githubToken) missing.push("GITHUB_TOKEN");
   if (!supabaseServiceRoleKey) missing.push("SUPABASE_SERVICE_ROLE_KEY");
-  if (!anthropicApiKey) missing.push("ANTHROPIC_API_KEY");
+  // Claude auth: at least one of CLAUDE_CODE_OAUTH_TOKEN (Max) or
+  // ANTHROPIC_API_KEY (API). Mirrors Sandcastle's `_shared/env.mts`.
+  if (!claudeCodeOauthToken && !anthropicApiKey) {
+    missing.push("CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY");
+  }
 
   if (missing.length > 0) {
     log("error", "missing required env", { missing });
@@ -65,6 +73,7 @@ function readEnv(): RunnerEnv {
     runnerId,
     githubToken,
     supabaseServiceRoleKey,
+    claudeCodeOauthToken,
     anthropicApiKey,
   };
 }
