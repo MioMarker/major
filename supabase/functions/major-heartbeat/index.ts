@@ -41,9 +41,16 @@ Deno.serve(async (req) => {
     const lease = body.leaseMinutes && body.leaseMinutes > 0 ? body.leaseMinutes : 5;
     const now = new Date();
 
-    await auth.client
+    const upsertResult = await auth.client
       .from("runner_instances")
-      .upsert({ id: body.runnerId, heartbeat_at: now.toISOString() }, { onConflict: "id" });
+      .upsert({ id: body.runnerId, heartbeat_at: now.toISOString() }, { onConflict: "id" })
+      .select();
+
+    if (upsertResult.error) {
+      console.error("[major-heartbeat] runner_instances upsert error:", upsertResult.error);
+      return errorResponse(`upsert failed: ${upsertResult.error.message} (code=${upsertResult.error.code ?? "?"})`, 500);
+    }
+    console.log("[major-heartbeat] upserted runner row:", upsertResult.data?.length ?? 0, "rows");
 
     if (!body.runId) {
       return jsonResponse({ renewedRun: false, leaseExpiresAt: null });

@@ -1,20 +1,64 @@
 # Edge function configuration.
 #
-# Two functions do NOT carry a Supabase Auth JWT and must have `verify_jwt`
-# disabled at the gateway:
+# All major-* functions disable the Supabase platform gateway's JWT
+# pre-check (`verify_jwt = false`). Reasons:
 #
-#   - major-github-webhook: caller is GitHub. Auth is by HMAC-SHA256
-#     signature (X-Hub-Signature-256) verified inline. The webhook secret
-#     is set via:
-#         npx -y supabase secrets set GITHUB_WEBHOOK_SECRET=<value>
+#   - The Runner authenticates via the new-format service-role secret
+#     (`sb_secret_…`), which is NOT a JWT — it has no segments and the
+#     gateway's pre-check rejects it with UNAUTHORIZED_INVALID_JWT_FORMAT
+#     before our function ever runs.
 #
-#   - major-reaper: invoked by pg_cron via http_post or by a scheduled
-#     external poller. No user-attributable JWT exists; the function only
-#     reads/writes via the service-role client.
+#   - Authentication is enforced by `_shared/auth.ts` inside every
+#     function: human callers go through `supabase.auth.getUser(token)`
+#     (works with HS256/ES256), and runner callers go through the
+#     service-role bypass + X-Major-Runner-Id header. The gateway's
+#     pre-check is redundant for both paths.
 #
-# All other functions are user-facing and rely on `_shared/auth.ts` to
-# validate Bearer tokens with `client.auth.getUser(token)`. Leave their
-# `verify_jwt` at the default (true).
+#   - major-github-webhook authenticates by HMAC-SHA256 signature
+#     verification (X-Hub-Signature-256), not Supabase Auth.
+#
+#   - major-reaper is invoked by pg_cron and never carries a user JWT.
+#
+# Trade-off: bad actors can hit endpoints with bogus tokens and we have
+# to validate inside the function instead of the gateway short-circuiting
+# them. Acceptable for Major's low-traffic two-dev v1; revisit if
+# unauthenticated load becomes a problem.
+
+[functions.major-create-triage-session]
+verify_jwt = false
+
+[functions.major-send-triage-message]
+verify_jwt = false
+
+[functions.major-finalize-triage-session]
+verify_jwt = false
+
+[functions.major-apply-change-set]
+verify_jwt = false
+
+[functions.major-list-items]
+verify_jwt = false
+
+[functions.major-get-item]
+verify_jwt = false
+
+[functions.major-claim-item]
+verify_jwt = false
+
+[functions.major-finalize-run]
+verify_jwt = false
+
+[functions.major-heartbeat]
+verify_jwt = false
+
+[functions.major-confirm-qa]
+verify_jwt = false
+
+[functions.major-reject-item]
+verify_jwt = false
+
+[functions.major-start-auto-triage]
+verify_jwt = false
 
 [functions.major-github-webhook]
 verify_jwt = false
