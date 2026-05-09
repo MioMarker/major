@@ -32,5 +32,8 @@ pnpm-debug.log*
 # Deno (functions/)
 functions/.deno/
 
+# Supabase CLI cache (linked-project ref, version probes — env-local state)
+supabase/.temp/
+
 # misc
 *.local
