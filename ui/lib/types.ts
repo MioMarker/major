@@ -1,4 +1,4 @@
-// Major UI types — derived from db/0001_initial_schema.sql.
+// Major UI types — derived from supabase/migrations/20260509000000_initial_schema.sql.
 // In Phase 3 these should be re-exported from `@/db/types` once that exists;
 // for now they are duplicated here so the UI typechecks standalone.
 

@@ -17,7 +17,7 @@ _Avoid_: "the app" (ambiguous with HealthBite/Healix), "the codebase" (ambiguous
 **Major UI** — The Next.js human surface deployed on Vercel. Renders Items, Triage Sessions, runs, artifacts, and Settings.
 _Avoid_: "the dashboard," "the console," "the admin panel."
 
-**Major APIs** — The edge function surface under `functions/major-*`. The only programmatic entry into the Workflow Store.
+**Major APIs** — The edge function surface under `supabase/functions/major-*`. The only programmatic entry into the Workflow Store.
 _Avoid_: "the backend," "the server," "Major core."
 
 **Work Items View** — The default UI navigation area showing the filterable Item list, sorted by `queue_rank`. Other UI surfaces (Triage, Pending QA, Settings, Item Detail) are reached from here.

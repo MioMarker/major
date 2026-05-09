@@ -6,7 +6,7 @@ First deployments drive **HealthBite** (`~/Projects/healthbite`) and **Healix** 
 
 ## Components
 
-- **Major** — orchestrator. DB schema (`major.*`), edge functions (`functions/major-*`), Next.js UI on Vercel.
+- **Major** — orchestrator. DB schema (`major.*` in `supabase/migrations/`), edge functions (`supabase/functions/major-*`), Next.js UI on Vercel.
 - **Runner Instance** — long-lived Docker container with heartbeat + lease + working directory. One container = one runner. N containers = N-way parallelism.
 - **Tachikoma** — ephemeral Claude Code subprocess inside a Runner Instance. One Tachikoma per phase per Run. Roles distinguished only by prompt: implementer, reviewer, planner (stub), triage, repair.
 
@@ -207,7 +207,7 @@ Logic: any `expected_paths` intersection OR mass-rerank → Change Set queued fo
 
 ## Schema overview
 
-Full DDL in `db/0001_initial_schema.sql`. Tables:
+Full DDL in `supabase/migrations/20260509000000_initial_schema.sql` (RPCs in `supabase/migrations/20260509000001_rpc_functions.sql`). TypeScript types mirroring the schema live in `db/types.ts`. Tables:
 
 | Table | Purpose |
 |---|---|
@@ -229,7 +229,7 @@ Full DDL in `db/0001_initial_schema.sql`. Tables:
 
 ## API surface
 
-Edge functions under `functions/`. All use `_shared/` helpers (CORS, auth, response). All authenticated via Supabase Auth; RLS limits to two devs.
+Edge functions under `supabase/functions/`. All use `supabase/functions/_shared/` helpers (CORS, auth, response). All authenticated via Supabase Auth; RLS limits to two devs.
 
 | Function | Method | Caller | Purpose |
 |---|---|---|---|

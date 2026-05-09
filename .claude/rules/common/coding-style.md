@@ -53,7 +53,7 @@ function addEvent(events: readonly Event[], next: Event) { return [...events, ne
 
 - 200–400 lines is typical; 800 is the upper bound. If you're past 600 and still adding, split.
 - One concern per file. A file should have a name that describes its single responsibility.
-- Organize by feature/domain, not by file type. `functions/major-claim-item/` is a folder, not a layer.
+- Organize by feature/domain, not by file type. `supabase/functions/major-claim-item/` is a folder, not a layer.
 
 ## Schema-Validated User Input
 

@@ -27,7 +27,7 @@ SUPABASE_DB_PASSWORD='<dev-postgres-admin-password>' \
   npx -y supabase db push
 ```
 
-This creates the `major.*` schema, all tables in `db/0001_initial_schema.sql`, the seed `path_blocker_config` row, and the seed `artifact_type_contracts` rows (`git-change`, `triage-change-set`).
+This creates the `major.*` schema, all tables in `supabase/migrations/20260509000000_initial_schema.sql`, applies `supabase/migrations/20260509000001_rpc_functions.sql` (the Postgres RPCs), and inserts the seed `path_blocker_config` row plus the `artifact_type_contracts` rows for `git-change` and `triage-change-set`.
 
 The password is the dev project's Postgres admin password (Jonathan has it in 1Password). Never inline it in scripts or docs.
 
@@ -257,7 +257,7 @@ Path-blocker config is append-only by convention. The current effective config i
 
 ## 5. Bootstrap data
 
-Already shipped in `db/0001_initial_schema.sql` as part of the schema apply:
+Already shipped in `supabase/migrations/20260509000000_initial_schema.sql` as part of the schema apply:
 
 - The initial `path_blocker_config` row, with the v1 protected globs from `SPEC.md`'s "Path-blocker rule" section and `mass_rerank_threshold = 5`.
 - The two `artifact_type_contracts` rows for `git-change` (claim/produce/review/verify rules) and `triage-change-set` (apply rules).
@@ -289,7 +289,7 @@ Major's adoption of HealthBite (and Healix, already on this model) requires Heal
 
 5. **Communicate to Paul (`@kuvekep14`).** Two-dev rebuild of muscle memory: every PR retargets, every release becomes a deliberate `develop → main` merge.
 
-6. **Update Major's `git_repository_ref` config (if any) for HealthBite Items** to use `develop` as `base_branch`. The default in `db/0001_initial_schema.sql` is already `develop`; Items created before this switch may have `main` baked in — fix in place via SQL or via Triage Change Set on each affected Item.
+6. **Update Major's `git_repository_ref` config (if any) for HealthBite Items** to use `develop` as `base_branch`. The default in `supabase/migrations/20260509000000_initial_schema.sql` is already `develop`; Items created before this switch may have `main` baked in — fix in place via SQL or via Triage Change Set on each affected Item.
 
 7. **Tag the cutover.** Annotated tag on the last `main`-based commit:
    ```bash

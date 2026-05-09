@@ -25,9 +25,11 @@ Top-level instructions for Claude Code (and any other AI agent) working ON Major
 
 | Path | Owner | Notes |
 |---|---|---|
-| `db/` | DB schema + types | Migrations are append-only; one SQL file per migration, monotonically numbered |
-| `functions/` | Major's API | Each function its own dir under `functions/major-<name>/` with `index.ts` + `deno.json` |
-| `functions/_shared/` | Shared API helpers | CORS, auth, response, db helpers |
+| `supabase/migrations/` | DB schema (SQL) | Migrations are append-only, timestamped `YYYYMMDDHHMMSS_<name>.sql`; applied via `supabase db push` |
+| `db/` | DB types + smoke test (TypeScript) | Hand-maintained `types.ts` mirrors the schema; no codegen in v1 |
+| `supabase/functions/` | Major's API | Each function its own dir under `supabase/functions/major-<name>/` with `index.ts` + `deno.json` |
+| `supabase/functions/_shared/` | Shared API helpers | CORS, auth, response, db helpers |
+| `supabase/config.toml` | Per-function gateway settings | `verify_jwt = false` for the webhook + reaper |
 | `ui/` | Next.js app | App Router; auth via Supabase |
 | `runner/` | Runner Instance image + Tachikoma | `Dockerfile`, `main.ts`, `tachikoma.ts`, `prompts/` |
 | `docs/` | Documentation, ADRs, runbook, failure modes | |

@@ -1,10 +1,10 @@
 # Supabase Edge Functions
 
-Major's edge functions live under `functions/major-<name>/`. Each function has its own directory with `index.ts` and `deno.json`. Shared boilerplate (CORS, auth, response, DB helpers) is in `functions/_shared/`.
+Major's edge functions live under `supabase/functions/major-<name>/`. Each function has its own directory with `index.ts` and `deno.json`. Shared boilerplate (CORS, auth, response, DB helpers) is in `supabase/functions/_shared/`.
 
 ## `_shared/` is Required
 
-Every function uses helpers from `functions/_shared/`:
+Every function uses helpers from `supabase/functions/_shared/`:
 
 | File | Purpose |
 |---|---|

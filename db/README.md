@@ -1,18 +1,24 @@
 # Major DB
 
 Major's authoritative store. Schema lives under `major.*` in the existing
-Supabase **dev** project (`nuihvxluxdpdjgkvtdih.supabase.co`). The full DDL
-is in `0001_initial_schema.sql`; SPEC.md's "Schema overview" enumerates the
-tables and their roles.
+Supabase **dev** project (`nuihvxluxdpdjgkvtdih.supabase.co`). The DDL is in
+`../supabase/migrations/`; this directory holds only the TypeScript types
+that mirror the schema (no codegen — hand-maintained from the SQL).
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `0001_initial_schema.sql` | Initial migration. Creates the `major` schema and all 15 tables, plus seeds `artifact_type_contracts` and `path_blocker_config`. |
-| `types.ts` | Hand-maintained TypeScript types for every table. Imported by `functions/`, `runner/`, and `ui/`. |
+| `types.ts` | Hand-maintained TypeScript types for every table. Imported by `supabase/functions/`, `runner/`, and `ui/`. |
 | `types.smoke.ts` | Compile-only smoke test exercised by `tsc --noEmit --strict`. |
 | `tsconfig.json` | Local strict typecheck config for the smoke test. |
+
+The actual SQL migrations live in `../supabase/migrations/`:
+
+| Migration | Purpose |
+|---|---|
+| `20260509000000_initial_schema.sql` | Initial migration. Creates the `major` schema and all 15 tables, plus seeds `artifact_type_contracts` and `path_blocker_config`. |
+| `20260509000001_rpc_functions.sql` | Postgres RPCs (`claim_next_item`, `finalize_run`, `apply_change_set`, `reaper_sweep`) that the edge functions call for atomic multi-row writes. |
 
 ## Hosting
 
@@ -48,15 +54,16 @@ npx -y supabase migration repair --status reverted <version>
 
 ## Convention
 
-- **One SQL file per migration**, numbered monotonically: `0001_*.sql`,
-  `0002_*.sql`, ... The number is the source of order, not the timestamp.
-  This keeps migrations short, reviewable, and rebase-friendly.
+- **One SQL file per migration**, named with the Supabase CLI's expected
+  timestamp prefix `YYYYMMDDHHMMSS_<descriptive_name>.sql`. The CLI
+  applies migrations in lexicographic order, which the timestamp guarantees.
 - **Append-only.** Once a migration is on `develop`, never edit it. Mistakes
   in shipped migrations are corrected by a follow-up migration, not by
   rewriting history. (`db push` keys off file content; editing in place
   desynchronizes local from remote.)
-- **Descriptive name in the filename:** `0002_add_run_budget_columns.sql`,
-  `0003_backfill_queue_rank.sql`. Skim-readable in `git log`.
+- **Descriptive name after the timestamp:**
+  `20260601120000_add_run_budget_columns.sql`,
+  `20260620080000_backfill_queue_rank.sql`. Skim-readable in `git log`.
 - **Schema-qualify everything:** every CREATE/ALTER targets `major.<table>`.
   Don't drop into `public`.
 - **Idempotent where cheap:** `create schema if not exists`, `drop ... if
@@ -81,8 +88,8 @@ Anything else needs an ADR in `docs/adr/` first:
 - Restructuring a relationship (e.g., turning a 1:1 into a join table)
 - Changing a primary key or unique constraint
 - Splitting or merging tables
-- Anything that requires coordinated deploys with `functions/`, `runner/`, or
-  `ui/`
+- Anything that requires coordinated deploys with `supabase/functions/`,
+  `runner/`, or `ui/`
 
 The ADR is a one-page note: what changes, why, what the migration plan looks
 like, and what code must update in lockstep. Per AGENTS.md "When you encounter

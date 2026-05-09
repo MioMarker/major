@@ -60,5 +60,5 @@ Configure the four env vars above in the Vercel dashboard. The repo's `vercel.js
 ## Notes
 
 - `middleware.ts` enforces auth on every non-public route in non-mock mode.
-- Types in `lib/types.ts` mirror `db/0001_initial_schema.sql`. In Phase 3 these should be re-exported from a generated `@/db/types` once the DB types are produced.
+- Types in `lib/types.ts` mirror `supabase/migrations/20260509000000_initial_schema.sql`. Phase 4 follow-up: re-export from `@/db/types` (the hand-maintained TypeScript types in the repo's `db/` directory) instead of duplicating shapes here.
 - API wrappers route through `lib/api/client.ts` with `NEXT_PUBLIC_MAJOR_API_BASE_URL` and `NEXT_PUBLIC_USE_MOCK` switches.

@@ -49,7 +49,7 @@ Otherwise the Set auto-applies.
 
 ### Initial protected globs
 
-(Seeded in `db/0001_initial_schema.sql`, editable via UI Settings.)
+(Seeded in `supabase/migrations/20260509000000_initial_schema.sql`, editable via UI Settings.)
 
 ```
 supabase/functions/chat-with-ai/**
