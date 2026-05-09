@@ -1,5 +1,7 @@
 # Major
 
+![Status: Active Development](https://img.shields.io/badge/status-active%20development-brightgreen)
+
 AFK agent orchestrator. Intakes engineering work via Triage Sessions, fans into vertical-slice Work Items, runs them through sandboxed agent execution, surfaces results for human review.
 
 Drives **HealthBite** (`~/Projects/healthbite`) and **Healix** (`~/Projects/healix`). State lives in the existing Supabase dev project (`nuihvxluxdpdjgkvtdih`) under a new `major.*` schema.
