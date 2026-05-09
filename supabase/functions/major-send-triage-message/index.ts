@@ -11,7 +11,7 @@
 // blocking on the prompt + model decision.
 //
 // The transcript is stored as JSONB; each entry is { role, content, ts }.
-// Lifecycle authority: this endpoint never mutates Work Items. State changes
+// Lifecycle authority: this endpoint never mutates Briefs. State changes
 // happen only when major-finalize-triage-session emits Change Operations.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
