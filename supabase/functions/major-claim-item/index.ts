@@ -7,7 +7,18 @@
 //     leaseMinutes?: number,   // default 5
 //     purpose?: 'execute'|'review'|'triage'|'repair'   // default 'execute'
 //   }
-//   200: { claimed: true, item: WorkItem, run: Run, revisionId: number|null }
+//   200: {
+//     claimed: true,
+//     workItem: {              // camelCase, hydrated with PRD content
+//       id, title, status, classifications,
+//       expectedArtifactType, expectedPaths,
+//       baseBranch, gitRepositoryRef,
+//       contentMd, currentRevisionId
+//     },
+//     run: {                    // camelCase
+//       id, purpose, runnerInstanceId, leaseExpiresAt, inspectedRunId
+//     }
+//   }
 //   409: { claimed: false }   — nothing eligible / lost the race
 //
 // Implements the Run Start Transaction. Delegates to the
@@ -83,18 +94,62 @@ Deno.serve(async (req) => {
       return jsonResponse({ claimed: false }, 409);
     }
 
-    // Hydrate the resulting Item + Run for the runner so it can start work
-    // without an extra round trip.
-    const [{ data: item }, { data: run }] = await Promise.all([
+    // Hydrate Item + Run + revision for the runner so it can start work
+    // without extra round trips. Transform to the camelCase shape the
+    // runner's TachikomaItemSnapshot type expects (snake_case at the DB
+    // boundary, camelCase at the API boundary).
+    const [itemRes, runRes, revisionRes] = await Promise.all([
       auth.client.from("work_items").select("*").eq("id", row.item_id).single(),
       auth.client.from("runs").select("*").eq("id", row.run_id).single(),
+      row.revision_id != null
+        ? auth.client.from("work_item_content_revisions")
+            .select("id, content_md").eq("id", row.revision_id).single()
+        : Promise.resolve({ data: null, error: null }),
     ]);
+
+    if (itemRes.error || !itemRes.data) {
+      return errorResponse(`work_items lookup failed: ${itemRes.error?.message ?? "no row"}`, 500);
+    }
+    if (runRes.error || !runRes.data) {
+      return errorResponse(`runs lookup failed: ${runRes.error?.message ?? "no row"}`, 500);
+    }
+
+    const item = itemRes.data;
+    const run = runRes.data;
+    const contentMd = revisionRes.data?.content_md ?? "";
+
+    // Title derivation: first markdown H1 if present, else first non-empty
+    // line trimmed to ~80 chars. The runner uses this for PR titles and
+    // logging — never for lifecycle decisions, so a fallback is safe.
+    function deriveTitle(md: string, itemId: number): string {
+      const h1 = md.match(/^#\s+(.+?)\s*$/m);
+      if (h1) return h1[1].trim();
+      const firstLine = md.split("\n").map((s) => s.trim()).find((s) => s.length > 0);
+      if (firstLine) return firstLine.slice(0, 80);
+      return `Item ${itemId} (no PRD content)`;
+    }
 
     return jsonResponse({
       claimed: true,
-      item,
-      run,
-      revisionId: row.revision_id ?? null,
+      workItem: {
+        id: item.id,
+        title: deriveTitle(contentMd, item.id),
+        status: item.status,
+        classifications: item.classifications ?? [],
+        expectedArtifactType: item.expected_artifact_type,
+        expectedPaths: item.expected_paths ?? [],
+        baseBranch: item.base_branch,
+        gitRepositoryRef: item.git_repository_ref,
+        contentMd,
+        currentRevisionId: item.current_revision_id,
+      },
+      run: {
+        id: run.id,
+        purpose: run.purpose,
+        runnerInstanceId: run.runner_id,
+        leaseExpiresAt: run.lease_expires_at,
+        inspectedRunId: run.inspected_run_id,
+      },
     });
   } catch (err) {
     console.error("[major-claim-item]", err);

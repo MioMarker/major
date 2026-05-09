@@ -77,6 +77,14 @@ COPY main.ts tachikoma.ts ./
 COPY prompts/ ./prompts/
 RUN npx tsc
 
+# tachikoma.ts resolves prompt paths via path.join(__dirname, "prompts").
+# After tsc, __dirname for the running .js file is /opt/major-runner/dist/,
+# so prompt .md files must live alongside the compiled output. We copy just
+# the markdown (NOT `cp -r prompts dist/prompts`) because `dist/prompts/`
+# already exists — tsc compiled `prompts/versions.ts` into it. A recursive
+# copy would create `dist/prompts/prompts/`.
+RUN cp prompts/*.md dist/prompts/
+
 # Make the runner code readable by the agent user.
 RUN chown -R agent:agent /opt/major-runner
 
