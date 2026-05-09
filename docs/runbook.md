@@ -4,6 +4,8 @@ How to set Major up, run it day-to-day, and handle the situations that come up. 
 
 This runbook assumes the dev Supabase project (`nuihvxluxdpdjgkvtdih.supabase.co`) is the target. There is no production Major project in v1 — Major itself is dev-only; the systems it drives (HealthBite, Healix) have their own production environments.
 
+Vocabulary follows ADR 004 (Brief / Shell / Cyberbrain). The Cyberbrain is realised as the `major.*` schema (the schema name is unchanged).
+
 ---
 
 ## 1. Initial setup
@@ -48,25 +50,25 @@ npx -y supabase secrets set GITHUB_APP_TOKEN=<token>
 
 ```bash
 for fn in major-create-triage-session major-send-triage-message major-finalize-triage-session \
-          major-apply-change-set major-list-items major-get-item major-claim-item \
+          major-apply-change-set major-list-briefs major-get-brief major-claim-brief \
           major-finalize-run major-heartbeat major-github-webhook major-confirm-qa \
-          major-reject-item major-start-auto-triage major-reaper; do
+          major-reject-brief major-start-auto-triage major-reaper; do
   npx -y supabase functions deploy "$fn"
 done
 ```
 
 Order doesn't matter; each function is independent. The reaper is invoked by `pg_cron`; the deploy command publishes the function — schedule registration is in the migration.
 
-### 1.5 Build and push the Runner image
+### 1.5 Build and push the Shell image
 
 ```bash
-cd ~/Projects/major/runner
-docker build -t major-runner:latest .
+cd ~/Projects/major/shell
+docker build -t major-shell:latest .
 
 # Tag + push if/when we adopt a registry; v1 runs locally
 ```
 
-The Runner image must include: `deno`, `node20`, `gh`, `git`, and the Claude Code CLI. It is rebuilt on every Runner code change; it is never patched in place.
+The Shell image must include: `deno`, `node20`, `gh`, `git`, and the Claude Code CLI. It is rebuilt on every Shell code change; it is never patched in place.
 
 ### 1.6 Register GitHub webhooks on dependent repos
 
@@ -81,23 +83,24 @@ For each repo Major drives (`MioMarker/healthbite`, `MioMarker/healix`):
 
 After adding, push a no-op commit on the repo and confirm a `push` event lands in the webhook delivery log + a Telemetry Record appears in `major.telemetry_records`.
 
-### 1.7 Boot a Runner Instance
+### 1.7 Boot a Shell
 
 ```bash
 docker run --rm \
-  -e RUNNER_ID=runner-A \
+  --name shell-A \
+  -e SHELL_ID=shell-A \
   -e MAJOR_API_BASE_URL=https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1 \
   -e SUPABASE_SERVICE_ROLE_KEY=<service-role-key> \
   -e GITHUB_TOKEN=<fine-grained-PAT-with-repo-write-on-healthbite-and-healix> \
   -e CLAUDE_CODE_OAUTH_TOKEN=<from `claude setup-token` — Max subscription> \
-  major-runner:latest
+  major-shell:latest
 # Alternative if no Max plan: replace CLAUDE_CODE_OAUTH_TOKEN with
 #   -e ANTHROPIC_API_KEY=<sk-ant-...>
 ```
 
-The Runner authenticates to Major's API via `Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>` plus a `X-Major-Runner-Id` header. The auth helper (`supabase/functions/_shared/auth.ts`) recognizes the service-role bypass and attributes calls to `runner:<RUNNER_ID>`. No user JWT is involved; runners are not `auth.users` rows.
+The Shell authenticates to Major's API via `Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>` plus a `X-Major-Shell-Id` header. The auth helper (`supabase/functions/_shared/auth.ts`) recognizes the service-role bypass and attributes calls to `shell:<SHELL_ID>`. No user JWT is involved; Shells are not `auth.users` rows.
 
-The Runner registers itself in `major.runner_instances` on boot, then enters the main loop.
+The Shell registers itself in `major.shells` on boot, then enters the main loop.
 
 ---
 
@@ -105,19 +108,19 @@ The Runner registers itself in `major.runner_instances` on boot, then enters the
 
 ### 2.1 Monitoring runs via the UI
 
-The Items View (default at `/`) lists all Items by Status. Filter on `agent-running` to see active Runs; filter on `ready-for-review` for Items awaiting human QA; filter on `ready-for-human` for stuck Items needing intervention.
+The Briefs View (default at `/`) lists all Briefs by Status. Filter on `agent-running` to see active Runs; filter on `ready-for-review` for Briefs awaiting human QA; filter on `ready-for-human` for stuck Briefs needing intervention.
 
-Item Detail (`/items/<id>`) shows: current Content revision, full Events log, every Run with its outcome and Verification Results, all produced Artifacts (with PR links), and the relationship graph.
+Brief Detail (`/briefs/<id>`) shows: current Content revision, full Events log, every Run with its outcome and Verification Results, all produced Artifacts (with PR links), and the relationship graph.
 
-For at-a-glance Runner health: Settings → Runner Pool. Shows each `runner_instances` row with last heartbeat. Stale heartbeats (> 90s) are flagged; > 5 min triggers Lease-Expiry Reaper alerts.
+For at-a-glance Shell health: Settings → Shell Pool. Shows each `shells` row with last heartbeat. Stale heartbeats (> 90s) are flagged; > 5 min triggers Lease-Expiry Reaper alerts.
 
 ### 2.2 Manual lease repair
 
-Sometimes a Runner crashes in a way the reaper hasn't caught yet, leaving an Item in `agent-running` with a dead lease. Manual repair:
+Sometimes a Shell crashes in a way the reaper hasn't caught yet, leaving a Brief in `agent-running` with a dead lease. Manual repair:
 
 ```sql
 -- Identify the stuck Run
-SELECT id, work_item_id, runner_instance_id, lease_expires_at
+SELECT id, brief_id, shell_id, lease_expires_at
 FROM major.runs
 WHERE outcome = 'running' AND lease_expires_at < now() - interval '5 minutes';
 
@@ -128,66 +131,66 @@ SET outcome = 'cancelled',
     finalized_at = now()
 WHERE id = '<run-id>';
 
--- Reset the Item to ready-for-agent (clean retry)
-UPDATE major.work_items
+-- Reset the Brief to ready-for-agent (clean retry)
+UPDATE major.briefs
 SET status = 'ready-for-agent'
-WHERE id = '<work-item-id>';
+WHERE id = '<brief-id>';
 
 -- Record the manual intervention as an Event for audit
 INSERT INTO major.events
-  (work_item_id, event_type, source_actor, source_actor_id, idempotency_key, payload)
+  (brief_id, event_type, source_actor, source_actor_id, idempotency_key, payload)
 VALUES
-  ('<work-item-id>', 'system-run-cancelled', 'human', '<your-user-id>',
+  ('<brief-id>', 'system-run-cancelled', 'human', '<your-user-id>',
    'manual-repair-' || gen_random_uuid(),
    jsonb_build_object('reason', 'manual-repair', 'run_id', '<run-id>'));
 ```
 
 Run all four statements in a single transaction (`BEGIN;` … `COMMIT;`). Without the Event, the audit trail is broken; without the status update, the Reaper will keep firing.
 
-If the situation looks unsafe to retry (e.g., the Runner committed bad code that's now in `dev`), set the Item to `ready-for-human` instead of `ready-for-agent`.
+If the situation looks unsafe to retry (e.g., the Shell committed bad code that's now in `dev`), set the Brief to `ready-for-human` instead of `ready-for-agent`.
 
-### 2.3 Re-running a failed Item
+### 2.3 Re-running a failed Brief
 
-An Item that failed and was routed to `ready-for-human` (Run Finalization with Human Handoff) is intentionally stuck. To resubmit it:
+A Brief that failed and was routed to `ready-for-human` (Run Finalization with Human Handoff) is intentionally stuck. To resubmit it:
 
-1. Open Item Detail. Read the most recent Run's Events and Verification Results to understand what went wrong.
-2. If the issue is content (PRD missing detail, expected_paths wrong): edit Content → new Content Revision → Triage Change Set → re-apply path-blocker → Status returns to `ready-for-agent`.
+1. Open Brief Detail. Read the most recent Run's Events and Verification Results to understand what went wrong.
+2. If the issue is content (PRD missing detail, expected_paths wrong): edit Content → new Brief Content Revision → Triage Change Set → re-apply path-blocker → Status returns to `ready-for-agent`.
 3. If the issue is environmental (transient sandbox error, GitHub flake): no Content change needed. Run this:
 
 ```sql
-UPDATE major.work_items SET status = 'ready-for-agent' WHERE id = '<id>';
+UPDATE major.briefs SET status = 'ready-for-agent' WHERE id = '<id>';
 
 INSERT INTO major.events
-  (work_item_id, event_type, source_actor, source_actor_id, idempotency_key, payload)
+  (brief_id, event_type, source_actor, source_actor_id, idempotency_key, payload)
 VALUES
   ('<id>', 'human-resubmit', 'human', '<your-user-id>',
    'resubmit-' || gen_random_uuid(),
    jsonb_build_object('reason', 'transient-failure', 'previous_run_id', '<run-id>'));
 ```
 
-Never reset an Item to `ready-for-agent` without recording an Event — the audit trail and the lifecycle invariants depend on it.
+Never reset a Brief to `ready-for-agent` without recording an Event — the audit trail and the lifecycle invariants depend on it.
 
 ### 2.4 Inspecting the Events log
 
 ```sql
--- Most recent 50 events across all Items
-SELECT created_at, work_item_id, event_type, source_actor, payload
+-- Most recent 50 events across all Briefs
+SELECT created_at, brief_id, event_type, source_actor, payload
 FROM major.events
 ORDER BY created_at DESC
 LIMIT 50;
 
--- Events for a single Item
+-- Events for a single Brief
 SELECT created_at, event_type, source_actor, payload
 FROM major.events
-WHERE work_item_id = '<id>'
+WHERE brief_id = '<id>'
 ORDER BY created_at ASC;
 
 -- Find a stalled Run by event type
 SELECT *
 FROM major.events
 WHERE event_type = 'run-started'
-  AND work_item_id NOT IN (
-    SELECT work_item_id FROM major.events WHERE event_type = 'run-ended'
+  AND brief_id NOT IN (
+    SELECT brief_id FROM major.events WHERE event_type = 'run-ended'
   );
 ```
 
@@ -201,11 +204,11 @@ The HealthBite eval gate (`.github/workflows/eval-safety.yml`) runs on PRs touch
 
 Major's relationship to the eval gate:
 
-- Major mirrors PR check status into `major.work_item_artifacts` (the Pull Request artifact's `derived_facts`). The eval gate appears as one check among many.
+- Major mirrors PR check status into `major.brief_artifacts` (the Pull Request artifact's `derived_facts`). The eval gate appears as one check among many.
 - Major does **not** treat eval-gate red as a Run Finalization blocker. Sandbox-run `tsc --noEmit` and tests are required; the eval gate is decoration on top.
-- The Items View shows an `eval-gate: red` badge on Items whose PR has an eval-gate failure. This is informational — humans see it before the QA Confirmed step.
+- The Briefs View shows an `eval-gate: red` badge on Briefs whose PR has an eval-gate failure. This is informational — humans see it before the QA Confirmed step.
 
-If you see an eval-gate red badge on a `ready-for-review` Item: open the PR, read the eval result, decide. If you accept: continue with QA confirmation. If the eval-gate finding is real: reject the Item (`wontfix`) and create a new Item to address the underlying safety regression.
+If you see an eval-gate red badge on a `ready-for-review` Brief: open the PR, read the eval result, decide. If you accept: continue with QA confirmation. If the eval-gate finding is real: reject the Brief (`wontfix`) and create a new Brief to address the underlying safety regression.
 
 The eval gate flips from advisory to blocking only via the Stage 1 Sprint 1 flip-rule in HealthBite's `.claude/rules/ai/evaluation-pipeline.md`. Major does not modify that decision.
 
@@ -244,9 +247,9 @@ VALUES (
   '<your-user-id>'
 );
 
--- Record an Event for the audit trail (Items don't drive this, so use a synthetic work_item_id of the Major-meta Item if one exists, else null with a dedicated event_type)
+-- Record an Event for the audit trail (Briefs don't drive this, so use a synthetic brief_id of the Major-meta Brief if one exists, else null with a dedicated event_type)
 INSERT INTO major.events
-  (work_item_id, event_type, source_actor, source_actor_id, idempotency_key, payload)
+  (brief_id, event_type, source_actor, source_actor_id, idempotency_key, payload)
 VALUES
   (null, 'path-blocker-config-updated', 'human', '<your-user-id>',
    'pb-config-' || gen_random_uuid(),
@@ -292,7 +295,7 @@ Major's adoption of HealthBite (and Healix, already on this model) requires Heal
 
 5. **Communicate to Paul (`@kuvekep14`).** Two-dev rebuild of muscle memory: every PR retargets, every release becomes a deliberate `dev → main` merge.
 
-6. **Update Major's `git_repository_ref` config (if any) for HealthBite Items** to use `dev` as `base_branch`. The default in `supabase/migrations/20260509000000_initial_schema.sql` is already `dev`; Items created before this switch may have `main` baked in — fix in place via SQL or via Triage Change Set on each affected Item.
+6. **Update Major's `git_repository_ref` config (if any) for HealthBite Briefs** to use `dev` as `base_branch`. The default in `supabase/migrations/20260509000000_initial_schema.sql` is already `dev`; Briefs created before this switch may have `main` baked in — fix in place via SQL or via Triage Change Set on each affected Brief.
 
 7. **Tag the cutover.** Annotated tag on the last `main`-based commit:
    ```bash

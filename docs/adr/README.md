@@ -42,3 +42,4 @@ This preserves the historical record of why we believed what we believed at the 
 - [001 — Major's lifecycle model is derived from RelyMD's Foundry](./001-major-derived-from-foundry.md)
 - [002 — Path-Blocker Rule decides which Triage Change Sets need human apply](./002-path-blocker-rule.md)
 - [003 — `dev` is the integration branch; `main` is the release branch](./003-dev-as-integration-branch.md)
+- [004 — Ghost in the Shell naming convention](./004-ghost-in-the-shell-naming.md)

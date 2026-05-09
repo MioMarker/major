@@ -18,26 +18,26 @@ Major UI is a Next.js 14 App Router app deployed on Vercel free tier. Auth via S
 ## shadcn/ui
 
 - shadcn/ui is the component library. Install components per the shadcn workflow (`npx shadcn-ui add ...`); installed components live in `ui/components/ui/`.
-- Compose shadcn primitives in domain components under `ui/components/<domain>/` (e.g., `ui/components/items/ItemList.tsx`, `ui/components/triage/TriageMessageInput.tsx`).
+- Compose shadcn primitives in domain components under `ui/components/<domain>/` (e.g., `ui/components/briefs/BriefList.tsx`, `ui/components/triage/TriageMessageInput.tsx`).
 - Don't fork shadcn primitives unless the change is generic and reusable.
 
 ## Types from `db/types.ts`
 
-The DB schema generates TypeScript types in `db/types.ts`. The UI consumes these directly:
+The Cyberbrain schema generates TypeScript types in `db/types.ts`. The UI consumes these directly:
 
 ```ts
-import type { WorkItem, Run, Event } from "@/db/types";
+import type { Brief, Run, Event } from "@/db/types";
 ```
 
-When the UI needs a derived shape (e.g., a hydrated Item with relationships and recent events for the Item Detail view), define it in `ui/lib/types.ts` next to the query:
+When the UI needs a derived shape (e.g., a hydrated Brief with relationships and recent events for the Brief Detail view), define it in `ui/lib/types.ts` next to the query:
 
 ```ts
-import type { WorkItem, Run, Event, WorkItemArtifact } from "@/db/types";
+import type { Brief, Run, Event, BriefArtifact } from "@/db/types";
 
-export type HydratedWorkItem = WorkItem & {
+export type HydratedBrief = Brief & {
   recentRuns: ReadonlyArray<Run>;
   events: ReadonlyArray<Event>;
-  artifacts: ReadonlyArray<WorkItemArtifact>;
+  artifacts: ReadonlyArray<BriefArtifact>;
 };
 ```
 
@@ -49,15 +49,15 @@ export type HydratedWorkItem = WorkItem & {
 ui/
 ├── app/                      # App Router routes
 │   ├── (authenticated)/      # auth-gated layout
-│   │   ├── items/            # Items View, Item Detail
+│   │   ├── briefs/           # Briefs View, Brief Detail
 │   │   ├── triage/           # Triage list, session detail
 │   │   ├── pending-qa/       # QA-confirmation surface
-│   │   └── settings/         # path-blocker editor, runner pool
+│   │   └── settings/         # path-blocker editor, Shell pool
 │   ├── auth/                 # sign-in, callback
 │   └── layout.tsx
 ├── components/
 │   ├── ui/                   # shadcn primitives
-│   ├── items/
+│   ├── briefs/
 │   ├── triage/
 │   └── ...
 ├── lib/
@@ -70,8 +70,8 @@ ui/
 ## Data Fetching
 
 - **Server components**: fetch directly via the Supabase server client. No SWR.
-- **Client components**: SWR for reads with revalidation needs (Items View needs polling; Item Detail polls events). Direct edge-function calls for mutations.
-- Use array SWR keys for cache granularity: `useSWR(["items", filters], fetcher)`.
+- **Client components**: SWR for reads with revalidation needs (Briefs View needs polling; Brief Detail polls events). Direct edge-function calls for mutations.
+- Use array SWR keys for cache granularity: `useSWR(["briefs", filters], fetcher)`.
 - After mutations, `mutate(...)` the affected keys.
 
 ## Forms & Validation

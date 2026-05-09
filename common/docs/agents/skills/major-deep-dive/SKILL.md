@@ -7,6 +7,8 @@ description: "Full sync into Major — instructs the agent to immediately Read A
 
 Full sync. Read every authoritative Major doc into context before doing anything else, so subsequent questions can be answered without further file reads.
 
+The component vocabulary you'll meet in those docs (Brief / Shell / Cyberbrain / Tachikoma) is fixed by ADR 004 — read it explicitly so the rename is in your active context.
+
 ## Read these now, in order
 
 Use the Read tool on each absolute path. Don't skip any:
@@ -16,7 +18,7 @@ Use the Read tool on each absolute path. Don't skip any:
 3. `/Users/pioneer/Projects/major/docs/CONTEXT.md` — domain glossary; vocabulary tiebreaker.
 4. `/Users/pioneer/Projects/major/docs/runbook.md` — setup, deploy, day-to-day.
 5. `/Users/pioneer/Projects/major/docs/failure-modes.md` — what goes wrong, mapped to repairs.
-6. Every file under `/Users/pioneer/Projects/major/docs/adr/` (including `README.md`) except `000-template.md`.
+6. Every file under `/Users/pioneer/Projects/major/docs/adr/` (including `README.md`) except `000-template.md`. ADR 004 fixes the Brief / Shell / Cyberbrain vocabulary that the other docs use.
 
 Total ~1,200 lines across 6+ files.
 

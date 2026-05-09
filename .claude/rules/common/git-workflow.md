@@ -11,7 +11,7 @@ Trunk-based development on Major. Two devs (`@Pioneer18` and `@kuvekep14`) joint
   - `docs/<slug>` — docs-only
   - `refactor/<slug>` — code cleanup without behavior change
   - `hotfix/<slug>` — urgent prod fix
-- For Major-driven Items, the Runner Instance creates `major/work-item-<id>` automatically. Don't author these branches by hand.
+- For Major-driven Briefs, the Shell creates `major/brief-<id>` automatically. Don't author these branches by hand. (Pre-rename branches `major/work-item-<id>` stay for history.)
 - Keep branches short-lived (hours to a few days).
 
 ## `dev` and `main` rulesets
@@ -27,7 +27,7 @@ Admins (the user) can bypass with `gh pr merge --admin` or "Merge without waitin
 
 ## PRs target `dev`, never `main`
 
-Every Item-driven PR opens against `dev`. Releases are explicit `release: dev → main` PRs, performed deliberately by a human, **not** by Major.
+Every Brief-driven PR opens against `dev`. Releases are explicit `release: dev → main` PRs, performed deliberately by a human, **not** by Major.
 
 ## Commits
 
@@ -59,7 +59,7 @@ Adopted from HealthBite's tag conventions.
 Tags must be **annotated** (`git tag -a -m "..."`), never lightweight. The release tag points at the `main` commit produced by the `dev → main` merge.
 
 ```bash
-git tag -a backend/2026-05-09 -m "Deploy: major-claim-item v2 (issue #42)"
+git tag -a backend/2026-05-09 -m "Deploy: major-claim-brief v2 (issue #42)"
 git push origin backend/2026-05-09
 ```
 

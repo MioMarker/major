@@ -11,12 +11,12 @@ Before ANY commit, verify:
 - [ ] SQL queries are parameterized via the Supabase client. **Never** concatenate user input into a SQL string.
 - [ ] If the change adds a new endpoint: authentication is enforced. RLS is configured.
 - [ ] Error messages returned to clients don't include stack traces, DB error text, or internal identifiers.
-- [ ] If the change touches the Runner image: secrets are read from env vars, never baked into the image.
+- [ ] If the change touches the Shell image: secrets are read from env vars, never baked into the image.
 
 ## Secret Management
 
 - **Never hardcode secrets in source code, prompts, or test fixtures.** This includes commit messages, log lines, and error messages.
-- **Use environment variables only.** In edge functions: `Deno.env.get("...")`. In the Runner: passed via `docker run -e`. In the UI: `NEXT_PUBLIC_*` for client-safe values, server-only for everything else.
+- **Use environment variables only.** In edge functions: `Deno.env.get("...")`. In a Shell: passed via `docker run -e`. In the UI: `NEXT_PUBLIC_*` for client-safe values, server-only for everything else.
 - **Validate required secrets at startup.** If `SUPABASE_SERVICE_ROLE_KEY` is missing, the function should fail fast at boot with a clear error, not crash on first request.
 - **Rotate any exposed secret immediately.** See `docs/failure-modes.md` § 14 for the rotation runbook.
 
@@ -26,11 +26,11 @@ Major uses the Supabase JS client (`@supabase/supabase-js`) and PostgREST exclus
 
 ```ts
 // Wrong — user input concatenated into a SQL string
-await client.rpc("get_items_by_status", { sql: `WHERE status = '${status}'` });
+await client.rpc("get_briefs_by_status", { sql: `WHERE status = '${status}'` });
 
 // Correct — parameterized via the typed builder
 const { data, error } = await client
-  .from("work_items")
+  .from("briefs")
   .select("*")
   .eq("status", status);
 ```
@@ -43,7 +43,7 @@ Major's edge functions use the `_shared/auth.ts` helper. All user-facing endpoin
 
 - RLS policies on `major.*` tables enforce two-dev access. Never bypass RLS in user-facing functions.
 - Functions that legitimately need elevated access (e.g., `major-reaper`, `major-github-webhook`) use the service-role client and document why in a comment at the top of `index.ts`.
-- The Runner uses the service-role client for `major-claim-item` and `major-finalize-run` because it acts on behalf of the Workflow Store, not on behalf of a user.
+- A Shell uses the service-role client for `major-claim-brief` and `major-finalize-run` because it acts on behalf of the Cyberbrain, not on behalf of a user.
 
 ## Webhook Verification
 
@@ -51,9 +51,9 @@ Major's edge functions use the `_shared/auth.ts` helper. All user-facing endpoin
 
 ## Logging Hygiene
 
-- Logs go to Supabase function logs (edge functions) or container stdout (Runner). Both surfaces are visible to operators only, but treat them as semi-public.
+- Logs go to Supabase function logs (edge functions) or container stdout (Shell). Both surfaces are visible to operators only, but treat them as semi-public.
 - **Never log secrets** — even partial fragments. Use `redact()` helpers when in doubt.
-- **Never log full payloads** that may contain user content. Log shape and identifiers (Item id, Run id) instead.
+- **Never log full payloads** that may contain user content. Log shape and identifiers (Brief id, Run id) instead.
 
 ## Response Protocol
 
