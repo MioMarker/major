@@ -1,0 +1,23 @@
+# Edge function configuration.
+#
+# Two functions do NOT carry a Supabase Auth JWT and must have `verify_jwt`
+# disabled at the gateway:
+#
+#   - major-github-webhook: caller is GitHub. Auth is by HMAC-SHA256
+#     signature (X-Hub-Signature-256) verified inline. The webhook secret
+#     is set via:
+#         npx -y supabase secrets set GITHUB_WEBHOOK_SECRET=<value>
+#
+#   - major-reaper: invoked by pg_cron via http_post or by a scheduled
+#     external poller. No user-attributable JWT exists; the function only
+#     reads/writes via the service-role client.
+#
+# All other functions are user-facing and rely on `_shared/auth.ts` to
+# validate Bearer tokens with `client.auth.getUser(token)`. Leave their
+# `verify_jwt` at the default (true).
+
+[functions.major-github-webhook]
+verify_jwt = false
+
+[functions.major-reaper]
+verify_jwt = false

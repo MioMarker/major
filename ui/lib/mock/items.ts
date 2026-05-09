@@ -1,0 +1,464 @@
+import type { ItemDetail, MajorEvent, Run, VerificationResult, WorkItem, WorkItemArtifact, WorkItemContentRevision, WorkItemRelationship } from "@/lib/types";
+
+const now = () => new Date().toISOString();
+const ago = (mins: number) => new Date(Date.now() - mins * 60 * 1000).toISOString();
+
+export const MOCK_ITEMS: WorkItem[] = [
+  {
+    id: 101,
+    status: "ready-for-agent",
+    classifications: ["feature"],
+    expected_artifact_type: "git-change",
+    expected_paths: ["src/components/meals/**", "src/hooks/usePendingMealsStore.ts"],
+    git_repository_ref: "MioMarker/healthbite",
+    git_branch: "major/work-item-101",
+    base_branch: "develop",
+    pr_status: "absent",
+    pr_url: null,
+    queue_rank: 10,
+    priority_class: "p1",
+    placement_reason: "blocks-onboarding",
+    source_session_id: 1,
+    current_revision_id: 201,
+    created_at: ago(60 * 24),
+    updated_at: ago(45),
+  },
+  {
+    id: 102,
+    status: "agent-running",
+    classifications: ["bug-fix"],
+    expected_artifact_type: "git-change",
+    expected_paths: ["src/services/meals/submitMealAsync.ts"],
+    git_repository_ref: "MioMarker/healthbite",
+    git_branch: "major/work-item-102",
+    base_branch: "develop",
+    pr_status: "absent",
+    pr_url: null,
+    queue_rank: 20,
+    priority_class: null,
+    placement_reason: null,
+    source_session_id: 1,
+    current_revision_id: 202,
+    created_at: ago(60 * 6),
+    updated_at: ago(5),
+  },
+  {
+    id: 103,
+    status: "ready-for-review",
+    classifications: ["feature"],
+    expected_artifact_type: "git-change",
+    expected_paths: ["src/components/MealReportsView.tsx"],
+    git_repository_ref: "MioMarker/healthbite",
+    git_branch: "major/work-item-103",
+    base_branch: "develop",
+    pr_status: "open",
+    pr_url: "https://github.com/MioMarker/healthbite/pull/271",
+    queue_rank: 5,
+    priority_class: "p0",
+    placement_reason: "preview-launch",
+    source_session_id: 2,
+    current_revision_id: 203,
+    created_at: ago(60 * 24 * 2),
+    updated_at: ago(120),
+  },
+  {
+    id: 104,
+    status: "ready-for-triage",
+    classifications: ["refactor"],
+    expected_artifact_type: null,
+    expected_paths: [],
+    git_repository_ref: null,
+    git_branch: null,
+    base_branch: "develop",
+    pr_status: "absent",
+    pr_url: null,
+    queue_rank: null,
+    priority_class: null,
+    placement_reason: null,
+    source_session_id: 2,
+    current_revision_id: 204,
+    created_at: ago(30),
+    updated_at: ago(30),
+  },
+  {
+    id: 105,
+    status: "needs-info",
+    classifications: ["feature"],
+    expected_artifact_type: "git-change",
+    expected_paths: ["src/app/(tabs)/insights.tsx"],
+    git_repository_ref: "MioMarker/healthbite",
+    git_branch: null,
+    base_branch: "develop",
+    pr_status: "absent",
+    pr_url: null,
+    queue_rank: null,
+    priority_class: null,
+    placement_reason: null,
+    source_session_id: 3,
+    current_revision_id: 205,
+    created_at: ago(60 * 4),
+    updated_at: ago(60),
+  },
+  {
+    id: 106,
+    status: "ready-for-human",
+    classifications: ["bug-fix"],
+    expected_artifact_type: "git-change",
+    expected_paths: ["supabase/functions/analyze-meal-ai/**"],
+    git_repository_ref: "MioMarker/healthbite",
+    git_branch: "major/work-item-106",
+    base_branch: "develop",
+    pr_status: "absent",
+    pr_url: null,
+    queue_rank: 30,
+    priority_class: null,
+    placement_reason: null,
+    source_session_id: 3,
+    current_revision_id: 206,
+    created_at: ago(60 * 24 * 3),
+    updated_at: ago(60 * 12),
+  },
+  {
+    id: 107,
+    status: "done",
+    classifications: ["docs"],
+    expected_artifact_type: "git-change",
+    expected_paths: ["docs/eval-pipeline.md"],
+    git_repository_ref: "MioMarker/healthbite",
+    git_branch: "major/work-item-107",
+    base_branch: "develop",
+    pr_status: "merged",
+    pr_url: "https://github.com/MioMarker/healthbite/pull/265",
+    queue_rank: null,
+    priority_class: null,
+    placement_reason: null,
+    source_session_id: 1,
+    current_revision_id: 207,
+    created_at: ago(60 * 24 * 5),
+    updated_at: ago(60 * 24 * 4),
+  },
+  {
+    id: 108,
+    status: "ready-for-review",
+    classifications: ["bug-fix"],
+    expected_artifact_type: "git-change",
+    expected_paths: ["src/lib/sentry.ts"],
+    git_repository_ref: "MioMarker/healthbite",
+    git_branch: "major/work-item-108",
+    base_branch: "develop",
+    pr_status: "open",
+    pr_url: "https://github.com/MioMarker/healthbite/pull/272",
+    queue_rank: 15,
+    priority_class: null,
+    placement_reason: null,
+    source_session_id: 2,
+    current_revision_id: 208,
+    created_at: ago(60 * 24),
+    updated_at: ago(45),
+  },
+];
+
+const REVISIONS_BY_ITEM: Record<number, WorkItemContentRevision[]> = {
+  101: [
+    {
+      id: 201,
+      work_item_id: 101,
+      revision_number: 1,
+      content_md:
+        "# Meal report empty-state polish\n\n## Acceptance Criteria\n- Empty state shows friendly illustration + CTA.\n- CTA opens log-meal flow.\n\n## Scope Boundaries\n- UI only; no backend writes.\n\n## Expected Paths\n- src/components/meals/**\n- src/hooks/usePendingMealsStore.ts\n",
+      author_actor: "human:jonathan",
+      reason: "initial-revision",
+      created_at: ago(60 * 24),
+    },
+  ],
+  102: [
+    {
+      id: 202,
+      work_item_id: 102,
+      revision_number: 1,
+      content_md: "# Fix submitMealAsync race\n\nDouble-submit fires when network is slow. Acceptance: cannot submit twice within 5s.",
+      author_actor: "human:paul",
+      reason: "initial-revision",
+      created_at: ago(60 * 6),
+    },
+  ],
+  103: [
+    {
+      id: 203,
+      work_item_id: 103,
+      revision_number: 2,
+      content_md: "# MealReportsView v2 — chart polish (rev 2)\n\nAddressed reviewer feedback on color tokens.",
+      author_actor: "agent:tachikoma",
+      reason: "requested-changes-from-reviewer",
+      created_at: ago(60 * 6),
+    },
+    {
+      id: 1203,
+      work_item_id: 103,
+      revision_number: 1,
+      content_md: "# MealReportsView v2 — chart polish (rev 1)\n\nInitial revision.",
+      author_actor: "human:jonathan",
+      reason: "initial-revision",
+      created_at: ago(60 * 48),
+    },
+  ],
+};
+
+const RUNS_BY_ITEM: Record<number, Run[]> = {
+  102: [
+    {
+      id: 5001,
+      work_item_id: 102,
+      purpose: "execute",
+      outcome: "running",
+      cancellation_reason: null,
+      runner_id: "runner-A",
+      started_against_revision_id: 202,
+      claimed_at: ago(20),
+      lease_expires_at: ago(-5),
+      heartbeat_at: ago(0.5),
+      sandbox_ref: "sandbox-bd71",
+      inspected_run_id: null,
+      started_at: ago(20),
+      ended_at: null,
+    },
+  ],
+  103: [
+    {
+      id: 5002,
+      work_item_id: 103,
+      purpose: "execute",
+      outcome: "succeeded",
+      cancellation_reason: null,
+      runner_id: "runner-B",
+      started_against_revision_id: 203,
+      claimed_at: ago(180),
+      lease_expires_at: ago(120),
+      heartbeat_at: ago(125),
+      sandbox_ref: "sandbox-aa31",
+      inspected_run_id: null,
+      started_at: ago(180),
+      ended_at: ago(115),
+    },
+    {
+      id: 5003,
+      work_item_id: 103,
+      purpose: "review",
+      outcome: "succeeded",
+      cancellation_reason: null,
+      runner_id: "runner-B",
+      started_against_revision_id: 203,
+      claimed_at: ago(110),
+      lease_expires_at: ago(80),
+      heartbeat_at: ago(90),
+      sandbox_ref: "sandbox-aa31",
+      inspected_run_id: null,
+      started_at: ago(110),
+      ended_at: ago(85),
+    },
+  ],
+};
+
+const VERIFICATION_BY_RUN: Record<number, VerificationResult[]> = {
+  5002: [
+    {
+      id: 7001,
+      run_id: 5002,
+      check_name: "tsc-noemit",
+      outcome: "pass",
+      required: true,
+      requiredness_source: "artifact-type-policy",
+      payload: { duration_ms: 14210 },
+      created_at: ago(120),
+    },
+    {
+      id: 7002,
+      run_id: 5002,
+      check_name: "tests",
+      outcome: "pass",
+      required: true,
+      requiredness_source: "artifact-type-policy",
+      payload: { suite: "vitest", passed: 142 },
+      created_at: ago(118),
+    },
+    {
+      id: 7003,
+      run_id: 5002,
+      check_name: "eval-gate",
+      outcome: "skipped",
+      required: false,
+      requiredness_source: "artifact-type-policy",
+      payload: { reason: "no eval paths touched" },
+      created_at: ago(116),
+    },
+  ],
+  5003: [
+    {
+      id: 7004,
+      run_id: 5003,
+      check_name: "reviewer-tachikoma",
+      outcome: "pass",
+      required: false,
+      requiredness_source: "artifact-type-policy",
+      payload: { comment_count: 3 },
+      created_at: ago(86),
+    },
+  ],
+};
+
+const ARTIFACTS_BY_ITEM: Record<number, WorkItemArtifact[]> = {
+  103: [
+    {
+      id: 9001,
+      work_item_id: 103,
+      run_id: 5002,
+      artifact_type: "git-change",
+      external_ref: "https://github.com/MioMarker/healthbite/pull/271",
+      payload: { base_sha: "abc123", head_sha: "def456", pr_number: 271 },
+      created_at: ago(115),
+    },
+  ],
+  108: [
+    {
+      id: 9002,
+      work_item_id: 108,
+      run_id: null,
+      artifact_type: "git-change",
+      external_ref: "https://github.com/MioMarker/healthbite/pull/272",
+      payload: { pr_number: 272 },
+      created_at: ago(45),
+    },
+  ],
+};
+
+const EVENTS_BY_ITEM: Record<number, MajorEvent[]> = {
+  101: [
+    {
+      id: 11001,
+      work_item_id: 101,
+      run_id: null,
+      type: "item-created",
+      actor: "human:jonathan",
+      payload: {},
+      idempotency_key: "item-created-101",
+      created_at: ago(60 * 24),
+    },
+    {
+      id: 11002,
+      work_item_id: 101,
+      run_id: null,
+      type: "status-transitioned",
+      actor: "major:auto-triage",
+      payload: { from: "ready-for-triage", to: "ready-for-agent" },
+      idempotency_key: "status-transitioned-101-ready-for-agent",
+      created_at: ago(60 * 23),
+    },
+  ],
+  103: [
+    {
+      id: 11003,
+      work_item_id: 103,
+      run_id: null,
+      type: "item-created",
+      actor: "human:jonathan",
+      payload: {},
+      idempotency_key: "item-created-103",
+      created_at: ago(60 * 48),
+    },
+    {
+      id: 11004,
+      work_item_id: 103,
+      run_id: 5002,
+      type: "run-started",
+      actor: "runner:runner-B",
+      payload: { purpose: "execute" },
+      idempotency_key: "run-started-5002",
+      created_at: ago(180),
+    },
+    {
+      id: 11005,
+      work_item_id: 103,
+      run_id: 5002,
+      type: "run-ended",
+      actor: "runner:runner-B",
+      payload: { outcome: "succeeded" },
+      idempotency_key: "run-ended-5002",
+      created_at: ago(115),
+    },
+    {
+      id: 11006,
+      work_item_id: 103,
+      run_id: 5002,
+      type: "artifact-produced",
+      actor: "runner:runner-B",
+      payload: { artifact_type: "git-change", pr_number: 271 },
+      idempotency_key: "artifact-produced-9001",
+      created_at: ago(115),
+    },
+    {
+      id: 11007,
+      work_item_id: 103,
+      run_id: null,
+      type: "status-transitioned",
+      actor: "runner:runner-B",
+      payload: { from: "agent-running", to: "ready-for-review" },
+      idempotency_key: "status-transitioned-103-ready-for-review",
+      created_at: ago(115),
+    },
+  ],
+};
+
+const RELATIONSHIPS_BY_ITEM: Record<number, Array<WorkItemRelationship & { related_item: Pick<WorkItem, "id" | "status"> }>> = {
+  103: [
+    {
+      id: 13001,
+      parent_id: 100,
+      child_id: 103,
+      type: "parent-child",
+      parent_review_requirement: "required",
+      excluded_reason: null,
+      excluded_by_actor: null,
+      created_at: ago(60 * 48),
+      related_item: { id: 100, status: "ready-for-review" },
+    },
+  ],
+};
+
+export function listMockItems(filters: { status?: string; classification?: string } = {}): WorkItem[] {
+  let items = [...MOCK_ITEMS];
+  if (filters.status) items = items.filter((i) => i.status === filters.status);
+  if (filters.classification) {
+    items = items.filter((i) =>
+      i.classifications.includes(filters.classification as never),
+    );
+  }
+  return items.sort((a, b) => {
+    const ar = a.queue_rank ?? Number.MAX_SAFE_INTEGER;
+    const br = b.queue_rank ?? Number.MAX_SAFE_INTEGER;
+    return ar - br;
+  });
+}
+
+export function getMockItem(id: number): ItemDetail | null {
+  const item = MOCK_ITEMS.find((i) => i.id === id);
+  if (!item) return null;
+  const revisions = REVISIONS_BY_ITEM[id] ?? [];
+  return {
+    ...item,
+    current_revision: revisions.find((r) => r.id === item.current_revision_id) ?? null,
+    revisions,
+    events: EVENTS_BY_ITEM[id] ?? [],
+    runs: RUNS_BY_ITEM[id] ?? [],
+    verification_results: (RUNS_BY_ITEM[id] ?? []).flatMap(
+      (r) => VERIFICATION_BY_RUN[r.id] ?? [],
+    ),
+    artifacts: ARTIFACTS_BY_ITEM[id] ?? [],
+    relationships: RELATIONSHIPS_BY_ITEM[id] ?? [],
+  };
+}
+
+export function listMockQaItems(): WorkItem[] {
+  return MOCK_ITEMS.filter((i) => i.status === "ready-for-review");
+}
+
+export const MOCK_USED_NOW = now;
