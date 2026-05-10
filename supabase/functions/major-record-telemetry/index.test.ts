@@ -12,7 +12,7 @@
 
 import { assertEquals, assertExists, assertNotEquals } from "jsr:@std/assert@^0.226.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { TelemetryWriter } from "./index.ts";
+import { telemetryWriter } from "./index.ts";
 import type { MajorClient } from "../_shared/auth.ts";
 
 // ────────────────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ function uniqueKey(label: string): string {
 Deno.test("TelemetryWriter: writes a record and increments tachikoma_event_sequence", async () => {
   const { client, runId, cleanup } = await createTestFixture();
   try {
-    const result = await TelemetryWriter(client, {
+    const result = await telemetryWriter(client, {
       run_id: runId,
       observation_type: "tachikoma-bash-observed",
       payload: { command: "ls -la", cwd: "/work/repo", shell_id: "shell-test", decision: "observed" },
@@ -130,7 +130,7 @@ Deno.test("TelemetryWriter: idempotency — duplicate key returns existing row, 
     const key = uniqueKey("idem");
     const payload = { command: "git status", cwd: "/work/repo", shell_id: "shell-test", decision: "observed" };
 
-    const first = await TelemetryWriter(client, {
+    const first = await telemetryWriter(client, {
       run_id: runId,
       observation_type: "tachikoma-bash-observed",
       payload,
@@ -138,7 +138,7 @@ Deno.test("TelemetryWriter: idempotency — duplicate key returns existing row, 
     });
 
     // Post again with same key.
-    const second = await TelemetryWriter(client, {
+    const second = await telemetryWriter(client, {
       run_id: runId,
       observation_type: "tachikoma-bash-observed",
       payload,
@@ -165,7 +165,7 @@ Deno.test("TelemetryWriter: sanitizer-on-write — secret in payload lands redac
   const { client, runId, cleanup } = await createTestFixture();
   try {
     const secretCommand = "curl -H 'Authorization: Bearer sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'";
-    const result = await TelemetryWriter(client, {
+    const result = await telemetryWriter(client, {
       run_id: runId,
       observation_type: "tachikoma-bash-observed",
       payload: { command: secretCommand, cwd: "/work/repo", shell_id: "shell-test", decision: "observed" },
@@ -184,13 +184,13 @@ Deno.test("TelemetryWriter: sanitizer-on-write — secret in payload lands redac
 Deno.test("TelemetryWriter: sequence atomicity — two sequential writes get distinct sequence slots", async () => {
   const { client, runId, cleanup } = await createTestFixture();
   try {
-    await TelemetryWriter(client, {
+    await telemetryWriter(client, {
       run_id: runId,
       observation_type: "tachikoma-bash-observed",
       payload: { command: "ls", cwd: "/work", shell_id: "shell-test", decision: "observed" },
       idempotency_key: uniqueKey("seq-1"),
     });
-    await TelemetryWriter(client, {
+    await telemetryWriter(client, {
       run_id: runId,
       observation_type: "tachikoma-bash-observed",
       payload: { command: "pwd", cwd: "/work", shell_id: "shell-test", decision: "observed" },

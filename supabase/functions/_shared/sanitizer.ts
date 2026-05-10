@@ -30,11 +30,11 @@ const SECRET_PATTERNS: readonly RegExp[] = [
  * Replace known secret patterns in `text` with "[REDACTED]".
  * Pure function — no side effects.
  */
-export function SecretSanitizer(text: string): string {
+export function secretSanitizer(text: string): string {
   let result = text;
   for (const pattern of SECRET_PATTERNS) {
     // Reset `lastIndex` on global regexes before each use to avoid state bleed.
-    (pattern as RegExp).lastIndex = 0;
+    pattern.lastIndex = 0;
     result = result.replace(pattern, REDACT);
   }
   return result;
@@ -62,7 +62,7 @@ export function sanitizeRecord(record: Record<string, unknown>): Record<string, 
   return Object.fromEntries(
     Object.entries(record).map(([key, value]) => {
       if (typeof value === "string") {
-        return [key, truncateField(SecretSanitizer(value))];
+        return [key, truncateField(secretSanitizer(value))];
       }
       if (value !== null && typeof value === "object" && !Array.isArray(value)) {
         return [key, sanitizeRecord(value as Record<string, unknown>)];

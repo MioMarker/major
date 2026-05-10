@@ -31,7 +31,7 @@ import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 import { handleOptions } from "../_shared/cors.ts";
 import { authenticate } from "../_shared/auth.ts";
 import { jsonResponse, errorResponse } from "../_shared/response.ts";
-import { SecretSanitizer, truncateField } from "../_shared/sanitizer.ts";
+import { sanitizeRecord } from "../_shared/sanitizer.ts";
 import type { MajorClient } from "../_shared/auth.ts";
 
 // ────────────────────────────────────────────────────────────────────
@@ -53,7 +53,6 @@ type RecordTelemetryRequest = z.infer<typeof RecordTelemetryRequest>;
 
 export interface TelemetryWriteResult {
   record: Record<string, unknown>;
-  duplicate: boolean;
 }
 
 /**
@@ -61,14 +60,14 @@ export interface TelemetryWriteResult {
  * RPC. Sanitizes and truncates string fields in `payload` before the RPC call
  * so that no secret or oversized value is ever persisted.
  *
- * Returns `{ record, duplicate: true }` when the idempotency_key already exists
- * (the existing row is returned unchanged).
+ * Returns the written row, or the existing row when the idempotency_key is a
+ * duplicate (the RPC is a no-op and returns the original record).
  */
-export async function TelemetryWriter(
+export async function telemetryWriter(
   client: MajorClient,
   req: RecordTelemetryRequest,
 ): Promise<TelemetryWriteResult> {
-  const sanitizedPayload = sanitizeRecordPayload(req.payload);
+  const sanitizedPayload = sanitizeRecord(req.payload);
 
   const { data, error } = await client.rpc("record_telemetry_observation", {
     p_run_id: req.run_id,
@@ -88,30 +87,7 @@ export async function TelemetryWriter(
 
   const record = rows[0] as Record<string, unknown>;
 
-  // Detect duplicate: the RPC returns the existing row when the key is already
-  // present. We infer "duplicate" by checking whether `created_at` is older
-  // than ~1 second. A simpler heuristic: the RPC always returns one row; we
-  // trust idempotency_key uniqueness for correctness and treat any RPC success
-  // as authoritative.
-  return { record, duplicate: false };
-}
-
-// ────────────────────────────────────────────────────────────────────
-// Sanitize + truncate helpers (internal)
-// ────────────────────────────────────────────────────────────────────
-
-function sanitizeRecordPayload(record: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(record).map(([key, value]) => {
-      if (typeof value === "string") {
-        return [key, truncateField(SecretSanitizer(value))];
-      }
-      if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-        return [key, sanitizeRecordPayload(value as Record<string, unknown>)];
-      }
-      return [key, value];
-    }),
-  );
+  return { record };
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -133,7 +109,7 @@ Deno.serve(async (req) => {
       return errorResponse(parsed.error.message, 400);
     }
 
-    const result = await TelemetryWriter(auth.client, parsed.data);
+    const result = await telemetryWriter(auth.client, parsed.data);
     return jsonResponse({ record: result.record });
   } catch (err) {
     console.error("[MajorRecordTelemetry]", err);
