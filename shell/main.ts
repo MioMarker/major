@@ -468,6 +468,7 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
     artifacts,
     telemetry,
     summary,
+    tachikomaCompletion: implementer.completionEvent?.body,
   });
 
   log("info", "run finalized", { runId: claim.run.id, outcome, nextStatus });
@@ -715,6 +716,8 @@ async function callFinalizeRun(args: {
   artifacts: ArtifactPayload[];
   telemetry: TelemetryPayload[];
   summary: string;
+  /** stream-json 'result' event body; forwarded to major-finalize-run for metric hoisting. */
+  tachikomaCompletion?: Record<string, unknown>;
 }): Promise<void> {
   // API contract (major-finalize-run):
   //   { runId, outcome, nextStatus, handoffReason?, cancellationReason?,
@@ -732,6 +735,7 @@ async function callFinalizeRun(args: {
     cancellationReason?: string;
     verificationResults?: VerificationPayload[];
     artifacts?: ArtifactPayload[];
+    tachikomaCompletion?: Record<string, unknown>;
   } = {
     runId: args.runId,
     outcome: args.outcome,
@@ -742,6 +746,9 @@ async function callFinalizeRun(args: {
   if (args.cancellationReason) body.cancellationReason = args.cancellationReason;
   if (args.nextBriefStatus === "ready-for-human") {
     body.handoffReason = args.summary || "shell reported handoff (see shell logs)";
+  }
+  if (args.tachikomaCompletion !== undefined) {
+    body.tachikomaCompletion = args.tachikomaCompletion;
   }
   void args.briefId;
   void args.telemetry;
