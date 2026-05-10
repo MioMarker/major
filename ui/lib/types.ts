@@ -115,6 +115,29 @@ export interface Run {
   inspected_run_id: number | null;
   started_at: string;
   ended_at: string | null;
+  // ADR 006 stream-json hoist columns. Populated from the implementer phase's
+  // completion event in the Run Finalization Transaction (see issue #24 for
+  // the design question on reviewer-phase metrics — currently null on the
+  // reviewer half; reviewer numbers live in verification_results.payload and
+  // telemetry_records).
+  num_turns: number | null;
+  duration_ms: number | null;
+  final_text: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_write_tokens: number | null;
+  tachikoma_event_sequence: number;
+}
+
+export interface TelemetryRecord {
+  id: number;
+  brief_id: number | null;
+  run_id: number | null;
+  observation_type: string;
+  payload: Record<string, unknown>;
+  idempotency_key: string | null;
+  created_at: string;
 }
 
 export interface VerificationResult {
@@ -221,6 +244,7 @@ export interface BriefDetail extends Brief {
   runs: Run[];
   verification_results: VerificationResult[];
   artifacts: BriefArtifact[];
+  telemetry_records: TelemetryRecord[];
   relationships: Array<
     BriefRelationship & { related_brief: Pick<Brief, "id" | "status"> }
   >;
