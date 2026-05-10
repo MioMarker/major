@@ -114,9 +114,16 @@ WORKDIR /work
 #   ANTHROPIC_API_KEY           — API key fallback. Set at least one.
 # Optional:
 #   IMAGE_TAG           — recorded in the Shell row's metadata for provenance
+#
+# We deliberately do NOT set NODE_ENV. Setting it to "production" globally
+# makes sandbox `npm install` calls skip devDependencies, which silently
+# breaks every test-writing Brief (e.g. Brief 15 hit max_turns trying to
+# diagnose why jest-expo wasn't installing despite being in package.json).
+# The Shell daemon is a plain TypeScript process with no NODE_ENV-sensitive
+# code path; leaving NODE_ENV unset lets sandbox npm calls install dev
+# deps as expected.
 # ────────────────────────────────────────────────────────────────────
-ENV MAJOR_API_BASE_URL="https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1" \
-    NODE_ENV="production"
+ENV MAJOR_API_BASE_URL="https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1"
 
 # Drop privileges for the daemon process. Container is the security boundary;
 # inside the container, agent UID matters less, but defense-in-depth.
