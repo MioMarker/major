@@ -70,9 +70,9 @@ docker build -t major-shell:latest .
 
 The Shell image must include: `deno`, `node20`, `gh`, `git`, and the Claude Code CLI. It is rebuilt on every Shell code change; it is never patched in place.
 
-### 1.6 Register GitHub webhooks on dependent repos
+### 1.6 Register GitHub webhooks on driven repos
 
-For each repo Major drives (`MioMarker/healthbite`, `MioMarker/healix`):
+For each repo Major drives — `MioMarker/healthbite`, `MioMarker/healix`, **and `MioMarker/major` itself** — register a webhook:
 
 1. Settings → Webhooks → Add webhook.
 2. Payload URL: `https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1/major-github-webhook`
@@ -80,6 +80,8 @@ For each repo Major drives (`MioMarker/healthbite`, `MioMarker/healix`):
 4. Secret: same value as `GITHUB_WEBHOOK_SECRET` from step 1.3.
 5. Events: `Pull requests`, `Check runs`, `Pushes`. (The handler ignores other events; subscribing to fewer events is the safer default.)
 6. Active: yes.
+
+`MioMarker/major` is on the list because Major drives PRs against itself for self-improving Briefs (doc edits, ADR follow-ups, internal tooling). Without the webhook registered there, the ADR 007 auto-close handler never sees the merge and the Brief stays stuck at `ready-for-review`. (This was caught during the first end-to-end dogfood of the auto-close webhook — see Brief 12 / PR #39, 2026-05-10.)
 
 After adding, push a no-op commit on the repo and confirm a `push` event lands in the webhook delivery log + a Telemetry Record appears in `major.telemetry_records`.
 
