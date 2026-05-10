@@ -67,10 +67,10 @@ _Avoid_: "Blocked Work Item" (pre-rename), "blocked status" (it isn't one), "stu
 **Missing Information Request** — Content convention required for `needs-info` Status. Names what info is missing and what would unblock.
 _Avoid_: "info request," "follow-up note," "blocker comment."
 
-**Event** — Durable record of an attributed lifecycle action. Idempotent via Idempotency Key. Drives Status transitions; never used for non-lifecycle observation.
+**Event** — Durable record of an attributed lifecycle action. Idempotent via Idempotency Key. Drives Status transitions; never used for non-lifecycle observation. The events-vs-telemetry distinction is actively defended in `docs/adr/006-tachikoma-stream-json-telemetry.md`: stream-json events from a Tachikoma's LLM turns are *observation*, not lifecycle, and land in `major.telemetry_records`, not here.
 _Avoid_: "log entry," "audit event" (those are non-lifecycle; use Telemetry Record), "history record."
 
-**Telemetry Record** — Durable operational observation that does not change Status. Performance, retries, side observations. Distinct table from Events.
+**Telemetry Record** — Durable operational observation that does not change Status. Performance, retries, side observations. Distinct table from Events. Stream-json events emitted by a Tachikoma during a Run are a Telemetry Record (per ADR 006); they observe behavior without driving Status.
 _Avoid_: "log," "metric" (overloaded), "audit" (Events are the audit trail for lifecycle changes; Telemetry is everything else).
 
 **Idempotency Key** — `(brief_id, event_type, source_actor, source_delivery_id)`. Required on every retryable Event/Verification/Run-Finalization/Change-Operation write.

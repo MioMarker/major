@@ -45,3 +45,4 @@ This preserves the historical record of why we believed what we believed at the 
 - [004 — Ghost in the Shell naming convention](./004-ghost-in-the-shell-naming.md)
 - [005 — Tachikoma command observability and policy via Claude Code permissions](./005-tachikoma-command-observability.md)
 - [006 — Structured Tachikoma telemetry via Claude Code stream-json output](./006-tachikoma-stream-json-telemetry.md)
+- [007 — Architecture patterns explicitly not adopted](./007-architecture-patterns-not-adopted.md)
