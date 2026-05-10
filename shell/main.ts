@@ -457,21 +457,22 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
     nextStatus = "ready-for-review";
     summary = `implementer ok, PR ${implementerOutput.pr_url}, reviewer ${reviewerStatus ?? "n/a"}`;
   } else if (implementer.ok && !allRequiredPassed) {
-    // PR exists but a required check failed. Retry-safe per SPEC: ready-for-agent.
+    // PR exists but a required check failed. Park for human review per ADR 012;
+    // re-arming ready-for-agent here produced the same tight reclaim loop that
+    // bit the exception path before issue #17 (~2 runs/sec). Budgeted retry is
+    // explicitly deferred to a future ADR with concrete trigger criteria.
     outcome = "failed";
-    nextStatus = "ready-for-agent";
-    summary = "required verification failed; retry";
+    nextStatus = "ready-for-human";
+    summary = "required verification failed; parked for human review";
   } else if (!implementer.ok && implementerOutputBailReason(implementerOutput) === "expected-paths-insufficient") {
     // Scope bail: not retry-safe; route to human.
     outcome = "failed";
     nextStatus = "ready-for-human";
     summary = "implementer reported expected-paths-insufficient";
   } else {
-    // Generic implementer failure. Park for human review rather than re-arming
-    // the brief immediately — there's no retry budget yet (#17), so a
-    // persistent implementer failure here would produce a tight reclaim loop
-    // (~2 runs/sec) until a human intervenes. Same hazard class as the
-    // executeRun-throws path patched in #21; same minimal fix.
+    // Generic implementer failure. Park for human review per ADR 012 — the
+    // same disposition as the failed-with-PR path above and the executeRun-
+    // throws path patched in #17. No retry budget exists yet.
     outcome = "failed";
     nextStatus = "ready-for-human";
     summary = `implementer failed (exit=${implementer.exitCode})`;
