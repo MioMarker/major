@@ -10,7 +10,7 @@ Your role is **advisory** (per SPEC §Authority): your comments and the `tachiko
 
 Same sandbox as the implementer phase. Read:
 
-1. `/work/.major/item.json` — the Brief snapshot. You care about:
+1. `/work/.major/brief.json` — the Brief snapshot. You care about:
    - `id`, `title`, `contentMd` — what was being attempted.
    - `classifications`, `expectedPaths`, `expectedArtifactType`, `baseBranch` — the scope contract.
    - `runId`, `shell_id` — for telemetry.
