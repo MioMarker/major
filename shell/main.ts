@@ -28,6 +28,7 @@ import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { runSandboxAgent, type TachikomaBriefSnapshot, type TachikomaRunSnapshot, type ParsedEvent } from "./tachikoma";
+import { parsePlannerOutput, shouldRunPlanner } from "./planner-helpers";
 
 // ────────────────────────────────────────────────────────────────────
 // Env + constants
@@ -995,36 +996,6 @@ function parseImplementerOutput(raw: unknown): ImplementerOutput | null {
 function implementerOutputBailReason(out: ImplementerOutput | null): string | null {
   if (!out || out.ok) return null;
   return out.bail_reason ?? null;
-}
-
-interface PlannerOutput {
-  ok: boolean;
-  files_planned?: string[];
-  scope_check?: "in-scope" | "expansion-needed";
-  additional_paths_needed?: string[];
-  verification_plan?: string[];
-  estimated_iterations?: number;
-  plan_path?: string;
-}
-
-function parsePlannerOutput(raw: unknown): PlannerOutput | null {
-  if (!raw || typeof raw !== "object") return null;
-  const obj = raw as Record<string, unknown>;
-  if (obj.phase !== "planner") return null;
-  return obj as unknown as PlannerOutput;
-}
-
-/**
- * Per ADR 013 / Phase 1 Decision 1: planner runs on Briefs that benefit from
- * explicit decomposition — multi-path or `epic`/`parent` classification.
- * Ship cheap first; broaden the gate later from data.
- */
-function shouldRunPlanner(brief: TachikomaBriefSnapshot): boolean {
-  return (
-    brief.expectedPaths.length > 1 ||
-    brief.classifications.includes("epic") ||
-    brief.classifications.includes("parent")
-  );
 }
 
 interface ReviewerOutput {
