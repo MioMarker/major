@@ -17,6 +17,6 @@
     "sourceMap": true,
     "removeComments": false
   },
-  "include": ["main.ts", "tachikoma.ts", "prompts/versions.ts"],
+  "include": ["main.ts", "tachikoma.ts", "stream-json-parser.ts", "stream-json-parser.test.ts", "prompts/versions.ts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -7,12 +7,14 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "test": "node --test --require ts-node/register stream-json-parser.test.ts",
     "start": "node dist/main.js",
     "dev": "ts-node main.ts"
   },
   "dependencies": {},
   "devDependencies": {
     "typescript": "^5.4.0",
-    "@types/node": "^20.11.0"
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.0"
   }
 }

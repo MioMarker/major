@@ -27,7 +27,7 @@
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import { runSandboxAgent, type TachikomaBriefSnapshot, type TachikomaRunSnapshot } from "./tachikoma";
+import { runSandboxAgent, type TachikomaBriefSnapshot, type TachikomaRunSnapshot, type ParsedEvent } from "./tachikoma";
 
 // ────────────────────────────────────────────────────────────────────
 // Env + constants
@@ -256,6 +256,36 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
     shellId: env.shellId,
   };
 
+  // Per-Run stream-event sequence counter. Shared across all phases so
+  // idempotency keys are globally unique within a Run. Incremented before
+  // each POST, so starts at 0 and the first event gets sequence=1.
+  let streamSeq = 0;
+  let totalParseErrors = 0;
+
+  const onStreamEvent = async (event: ParsedEvent): Promise<void> => {
+    streamSeq++;
+    const key = `${claim.run.id}:tachikoma-stream-event:${env.shellId}:${streamSeq}`;
+    try {
+      await callRecordTelemetry({
+        runId: claim.run.id,
+        observationType: "tachikoma-stream-event",
+        payload: {
+          eventKind: event.eventKind,
+          body: event.body,
+          shell_id: env.shellId,
+          sequence: streamSeq,
+        },
+        idempotencyKey: key,
+      });
+    } catch (err) {
+      log("warn", "stream-event telemetry write failed (continuing)", {
+        runId: claim.run.id,
+        sequence: streamSeq,
+        error: errToString(err),
+      });
+    }
+  };
+
   // 2. Phase 1: implementer.
   log("info", "phase: implementer starting", { runId: claim.run.id });
   const implementer = await runSandboxAgent({
@@ -263,13 +293,16 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
     sandboxDir,
     brief,
     run: runMeta,
+    onStreamEvent,
   });
   log("info", "phase: implementer ended", {
     runId: claim.run.id,
     ok: implementer.ok,
     exitCode: implementer.exitCode,
     durationMs: implementer.durationMs,
+    parseErrors: implementer.tachikomaParseErrors,
   });
+  totalParseErrors += implementer.tachikomaParseErrors;
 
   const implementerOutput = parseImplementerOutput(implementer.parsedOutput);
   activeRun.implementerOutput = implementerOutput;
@@ -284,6 +317,12 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
   const verifications: VerificationPayload[] = [];
   const artifacts: ArtifactPayload[] = [];
   const telemetry: TelemetryPayload[] = await readTelemetryJsonl();
+  if (totalParseErrors > 0) {
+    telemetry.push({
+      observationType: "tachikoma-stream-parse-errors",
+      payload: { count: totalParseErrors, runId: claim.run.id },
+    });
+  }
 
   // Verifications: copy implementer's reported checks, plus a meta-check for
   // the Tachikoma subprocess itself.
@@ -357,13 +396,16 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
       sandboxDir,
       brief,
       run: runMeta,
+      onStreamEvent,
     });
     log("info", "phase: reviewer ended", {
       runId: claim.run.id,
       ok: reviewer.ok,
       exitCode: reviewer.exitCode,
       durationMs: reviewer.durationMs,
+      parseErrors: reviewer.tachikomaParseErrors,
     });
+    totalParseErrors += reviewer.tachikomaParseErrors;
 
     reviewerOk = reviewer.ok;
     const reviewerOutput = parseReviewerOutput(reviewer.parsedOutput);
@@ -426,6 +468,7 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
     artifacts,
     telemetry,
     summary,
+    tachikomaCompletion: implementer.completionEvent?.body,
   });
 
   log("info", "run finalized", { runId: claim.run.id, outcome, nextStatus });
@@ -673,6 +716,8 @@ async function callFinalizeRun(args: {
   artifacts: ArtifactPayload[];
   telemetry: TelemetryPayload[];
   summary: string;
+  /** stream-json 'result' event body; forwarded to major-finalize-run for metric hoisting. */
+  tachikomaCompletion?: Record<string, unknown>;
 }): Promise<void> {
   // API contract (major-finalize-run):
   //   { runId, outcome, nextStatus, handoffReason?, cancellationReason?,
@@ -690,6 +735,7 @@ async function callFinalizeRun(args: {
     cancellationReason?: string;
     verificationResults?: VerificationPayload[];
     artifacts?: ArtifactPayload[];
+    tachikomaCompletion?: Record<string, unknown>;
   } = {
     runId: args.runId,
     outcome: args.outcome,
@@ -701,9 +747,26 @@ async function callFinalizeRun(args: {
   if (args.nextBriefStatus === "ready-for-human") {
     body.handoffReason = args.summary || "shell reported handoff (see shell logs)";
   }
+  if (args.tachikomaCompletion !== undefined) {
+    body.tachikomaCompletion = args.tachikomaCompletion;
+  }
   void args.briefId;
   void args.telemetry;
   await majorApiPost("major-finalize-run", body);
+}
+
+async function callRecordTelemetry(args: {
+  runId: number;
+  observationType: string;
+  payload: Record<string, unknown>;
+  idempotencyKey: string;
+}): Promise<void> {
+  await majorApiPost("major-record-telemetry", {
+    run_id: args.runId,
+    observation_type: args.observationType,
+    payload: args.payload,
+    idempotency_key: args.idempotencyKey,
+  });
 }
 
 /**
