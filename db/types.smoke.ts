@@ -153,6 +153,8 @@ const _bf: Brief = {
   priorityClass: null,
   placementReason: null,
   sourceSessionId: 1,
+  sourceIssueRepo: 'MioMarker/healthbite',
+  sourceIssueNumber: 42,
   currentRevisionId: null,
   createdAt: '2026-05-09T00:00:00Z',
   updatedAt: '2026-05-09T00:00:00Z',

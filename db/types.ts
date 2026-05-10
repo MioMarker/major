@@ -322,6 +322,13 @@ export type Brief = {
   priorityClass: string | null;
   placementReason: string | null;
   sourceSessionId: number | null;
+  // GitHub issue that originated the Brief (ADR 007). Populated by
+  // major-create-triage-session when the trigger was 'integration:github'
+  // with an issue payload; null for human-initiated triage and synthetic
+  // seeds. Read by the PR-merge webhook to close the source issue at
+  // Brief done transition.
+  sourceIssueRepo: string | null;
+  sourceIssueNumber: number | null;
   currentRevisionId: number | null;
   createdAt: Date | string;
   updatedAt: Date | string;
