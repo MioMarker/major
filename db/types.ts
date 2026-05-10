@@ -373,6 +373,21 @@ export type Run = {
   inspectedRunId: number | null;
   startedAt: Date | string;
   endedAt: Date | string | null;
+  // Stream-json Tachikoma telemetry summary metrics (ADR 006). Populated
+  // inside the Run Finalization Transaction from the final completion event;
+  // null on Runs that finalized before stream-json adoption.
+  numTurns: number | null;
+  durationMs: number | null;
+  finalText: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  // Per-event Telemetry sequence counter (ADR 006). Atomically incremented
+  // per stream-json event write; the Run-scoped counter underwrites the
+  // (run_id, 'tachikoma-stream-event', shell_id, sequence) idempotency key.
+  // Never null — defaults to 0 on insert.
+  tachikomaEventSequence: number;
 };
 
 export type ArtifactTypeContract = {
