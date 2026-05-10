@@ -49,10 +49,11 @@ agent-running  (single active Run; coordination metadata live)
   │       │   → done  (terminal; accepted Event; Actor=human:<merger.login> on webhook path)
   │       │   PR-closed-without-merge webhook (ADR 007) OR human reject in UI
   │       │   → wontfix  (terminal; Actor=human:<closer.login> on webhook path)
-  ├─→ ready-for-human  (failure not retry-safe; Human Handoff Event)
+  ├─→ ready-for-human  (any Run Finalization that does not produce ready-for-review;
+  │       │              Human Handoff Event; ADR 012 collapses all failure dispositions here)
   │       └─→ ready-for-agent (resolved) or wontfix (rejected) or done (PR-merge webhook)
-  └─→ ready-for-agent  (failure retry-safe; lease expired or transient sandbox error;
-                        next Run reuses same major/brief-<id> branch)
+  └─→ ready-for-agent  (lease expired via Reaper or System Run Cancellation; not a Run
+                        failure — next Run reuses same major/brief-<id> branch)
 
 terminal: done | wontfix
 ```
@@ -316,7 +317,7 @@ Full catalog in `docs/failure-modes.md`. Key entries:
 | Racing Shells on claim | Atomic UPDATE returns 0 rows | Loser polls again; only winner holds lease |
 | Slow Shell (lease expires while alive) | Lease ownership check on every Shell→Major API call | Slow Shell aborts gracefully; new claim wins |
 | Run reports duplicated | `runs.id` PK + idempotency key | Insert conflict → no-op |
-| Sandbox CI red | runImplementer iterates until green or budget exhausted | If exhausted: Run Finalization → ready-for-agent (retry) or ready-for-human (unsafe) |
+| Sandbox CI red | runImplementer iterates until green or budget exhausted | If exhausted: Run Finalization → ready-for-human (ADR 012; budgeted retry deferred to a future ADR) |
 | External CI never reports | Webhook delivery monitoring | Eval gate is advisory; humans see results at review time |
 | Change Set partial apply | All ops in single Postgres transaction | Rollback on any failure; idempotency key prevents duplicate apply |
 | PR collision (two Briefs merge same path) | Second merge requires rebase; PR check fails | UI surfaces "needs rebase"; manual or Repair Run |
