@@ -28,6 +28,7 @@ import { errorResponse, jsonResponse } from "../_shared/response.ts";
 import { getAdminClient } from "../_shared/db.ts";
 import { verifyGithubSignature } from "../_shared/webhook.ts";
 import { deriveIdempotencyKey } from "../_shared/idempotency.ts";
+import { parseBriefIdFromBody } from "./parse-pr-receipt.ts";
 
 const KNOWN_CHECK_NAMES = new Set([
   "tsc-noemit",
@@ -294,14 +295,6 @@ async function closeSourceIssue(
       body: await closeRes.text().catch(() => ""),
     });
   }
-}
-
-function parseBriefIdFromBody(body: string | null | undefined): number | null {
-  if (!body) return null;
-  // Accept the new `Major-brief:` receipt and fall back to the legacy
-  // `Major-item:` receipt so PRs created before the rename still correlate.
-  const m = body.match(/Major-brief:\s*(\d+)/m) ?? body.match(/Major-item:\s*(\d+)/m);
-  return m ? Number(m[1]) : null;
 }
 
 function derivePrStatus(action: string, pr: any): "open" | "merged" | "closed" {
