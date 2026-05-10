@@ -141,7 +141,7 @@ WHERE outcome = 'running' AND lease_expires_at < now() - interval '5 minutes';
 UPDATE major.runs
 SET outcome = 'cancelled',
     cancellation_reason = 'manual-repair',
-    finalized_at = now()
+    ended_at = now()
 WHERE id = '<run-id>';
 
 -- Reset the Brief to ready-for-agent (clean retry)
@@ -149,16 +149,23 @@ UPDATE major.briefs
 SET status = 'ready-for-agent'
 WHERE id = '<brief-id>';
 
--- Record the manual intervention as an Event for audit
+-- Record the manual intervention as Events for audit
 INSERT INTO major.events
-  (brief_id, event_type, source_actor, source_actor_id, idempotency_key, payload)
+  (brief_id, run_id, type, actor, idempotency_key, payload)
 VALUES
-  ('<brief-id>', 'system-run-cancelled', 'human', '<your-user-id>',
-   'manual-repair-' || gen_random_uuid(),
-   jsonb_build_object('reason', 'manual-repair', 'run_id', '<run-id>'));
+  ('<brief-id>', '<run-id>', 'run-ended', 'human:<your-user-id>',
+   'manual-repair-run-ended-' || gen_random_uuid(),
+   jsonb_build_object('cancellation_reason', 'manual-repair'));
+
+INSERT INTO major.events
+  (brief_id, run_id, type, actor, idempotency_key, payload)
+VALUES
+  ('<brief-id>', '<run-id>', 'status-transitioned', 'human:<your-user-id>',
+   'manual-repair-status-' || gen_random_uuid(),
+   jsonb_build_object('from', 'agent-running', 'to', 'ready-for-agent', 'reason', 'manual-repair'));
 ```
 
-Run all four statements in a single transaction (`BEGIN;` … `COMMIT;`). Without the Event, the audit trail is broken; without the status update, the Reaper will keep firing.
+Run all five statements in a single transaction (`BEGIN;` … `COMMIT;`). Without the Events, the audit trail is broken; without the status update, the Reaper will keep firing.
 
 If the situation looks unsafe to retry (e.g., the Shell committed bad code that's now in `dev`), set the Brief to `ready-for-human` instead of `ready-for-agent`.
 
@@ -174,9 +181,9 @@ A Brief that failed and was routed to `ready-for-human` (Run Finalization with H
 UPDATE major.briefs SET status = 'ready-for-agent' WHERE id = '<id>';
 
 INSERT INTO major.events
-  (brief_id, event_type, source_actor, source_actor_id, idempotency_key, payload)
+  (brief_id, type, actor, idempotency_key, payload)
 VALUES
-  ('<id>', 'human-resubmit', 'human', '<your-user-id>',
+  ('<id>', 'human-resubmit', 'human:<your-user-id>',
    'resubmit-' || gen_random_uuid(),
    jsonb_build_object('reason', 'transient-failure', 'previous_run_id', '<run-id>'));
 ```
@@ -187,13 +194,13 @@ Never reset a Brief to `ready-for-agent` without recording an Event — the audi
 
 ```sql
 -- Most recent 50 events across all Briefs
-SELECT created_at, brief_id, event_type, source_actor, payload
+SELECT created_at, brief_id, type, actor, payload
 FROM major.events
 ORDER BY created_at DESC
 LIMIT 50;
 
 -- Events for a single Brief
-SELECT created_at, event_type, source_actor, payload
+SELECT created_at, type, actor, payload
 FROM major.events
 WHERE brief_id = '<id>'
 ORDER BY created_at ASC;
@@ -201,9 +208,9 @@ ORDER BY created_at ASC;
 -- Find a stalled Run by event type
 SELECT *
 FROM major.events
-WHERE event_type = 'run-started'
+WHERE type = 'run-started'
   AND brief_id NOT IN (
-    SELECT brief_id FROM major.events WHERE event_type = 'run-ended'
+    SELECT brief_id FROM major.events WHERE type = 'run-ended'
   );
 ```
 
@@ -243,10 +250,10 @@ When the UI is unavailable or you need to script a change:
 
 ```sql
 -- Read current config
-SELECT * FROM major.path_blocker_config ORDER BY created_at DESC LIMIT 1;
+SELECT * FROM major.path_blocker_config ORDER BY updated_at DESC LIMIT 1;
 
 -- Apply a change (insert a new row; do NOT update in place — config is append-only audit)
-INSERT INTO major.path_blocker_config (protected_globs, mass_rerank_threshold, edited_by)
+INSERT INTO major.path_blocker_config (protected_globs, mass_rerank_threshold, updated_by)
 VALUES (
   ARRAY[
     'supabase/functions/chat-with-ai/**',
@@ -262,9 +269,9 @@ VALUES (
 
 -- Record an Event for the audit trail (Briefs don't drive this, so use a synthetic brief_id of the Major-meta Brief if one exists, else null with a dedicated event_type)
 INSERT INTO major.events
-  (brief_id, event_type, source_actor, source_actor_id, idempotency_key, payload)
+  (brief_id, type, actor, idempotency_key, payload)
 VALUES
-  (null, 'path-blocker-config-updated', 'human', '<your-user-id>',
+  (null, 'path-blocker-config-updated', 'human:<your-user-id>',
    'pb-config-' || gen_random_uuid(),
    jsonb_build_object('reason', 'add github workflows to protected list',
                       'added', ARRAY['.github/workflows/**']));
