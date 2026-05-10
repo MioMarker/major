@@ -49,3 +49,4 @@ This preserves the historical record of why we believed what we believed at the 
 - [008 — Tachikoma bash deny list v1 — Phase 2 calibration and seed](./008-tachikoma-bash-deny-list-v1.md)
 - [009 — PreToolUse hook discrimination for ad-hoc package installs](./009-package-install-hook-rule.md)
 - [012 — Failed-Run disposition: park at `ready-for-human`, defer retry budget](./012-failed-run-disposition.md)
+- [013 — Planner output contract: Markdown plan file at `/work/.major/plan.md`](./013-planner-output-contract.md)
