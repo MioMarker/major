@@ -45,3 +45,4 @@ This preserves the historical record of why we believed what we believed at the 
 - [004 — Ghost in the Shell naming convention](./004-ghost-in-the-shell-naming.md)
 - [005 — Tachikoma command observability and policy via Claude Code permissions](./005-tachikoma-command-observability.md)
 - [006 — Structured Tachikoma telemetry via Claude Code stream-json output](./006-tachikoma-stream-json-telemetry.md)
+- [007 — Auto-close Brief and source GitHub issue on PR terminal events](./007-auto-close-brief-and-issue-on-pr-terminal.md)
