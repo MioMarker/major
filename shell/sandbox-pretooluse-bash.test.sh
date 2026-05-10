@@ -83,6 +83,32 @@ expect_exit 0 "node script"                            "node ./scripts/foo.js"
 expect_exit 0 "npx command"                            "npx tsc --noEmit"
 
 echo ""
+echo "-- Bare install combined with shell redirects/pipes (regression for false positives) --"
+
+# Real Tachikoma commands from 2026-05-10 Briefs 15/16 that the discriminator
+# was incorrectly denying. The leading `2` of `2>&1` matched the non-flag
+# positional class; same root cause for `> out.txt` after a bare install.
+expect_exit 0 "bare install + stderr redirect + pipe"  "npm install 2>&1 | tail -20"
+expect_exit 0 "flag install + stderr redirect + pipe"  "npm install --legacy-peer-deps 2>&1 | tail -20"
+expect_exit 0 "flag install + stderr redirect (= form)" "npm install --include=dev 2>&1 | tail -5"
+expect_exit 0 "bare install with stdout file redirect" "npm install > install.log"
+expect_exit 0 "bare install with appended stderr file" "npm install 2>> err.log"
+expect_exit 0 "bare install with combined &> redirect" "npm install &> all.log"
+expect_exit 0 "bare install piped to grep"             "npm install | grep WARN"
+expect_exit 0 "flag install chained with &&"           "npm install --no-audit && echo done"
+expect_exit 0 "flag install chained with ;"            "npm install --no-audit; ls"
+
+echo ""
+echo "-- Package install combined with redirects/pipes MUST still block --"
+
+# Defensive: stripping shell noise must not let real package installs leak through.
+expect_exit 2 "package install with stderr redirect"   "npm install jest-expo 2>&1"
+expect_exit 2 "package install with file redirect"     "npm install jest-expo > out.log"
+expect_exit 2 "package install piped"                  "npm install jest-expo | tail -5"
+expect_exit 2 "package install chained &&"             "npm install jest-expo && echo done"
+expect_exit 2 "package install chained ;"              "npm install jest-expo; ls"
+
+echo ""
 echo "== Result: $PASS passed, $FAIL failed =="
 
 if (( FAIL > 0 )); then
