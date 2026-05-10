@@ -48,3 +48,4 @@ This preserves the historical record of why we believed what we believed at the 
 - [007 — Auto-close Brief and source GitHub issue on PR terminal events](./007-auto-close-brief-and-issue-on-pr-terminal.md)
 - [008 — Tachikoma bash deny list v1 — Phase 2 calibration and seed](./008-tachikoma-bash-deny-list-v1.md)
 - [009 — PreToolUse hook discrimination for ad-hoc package installs](./009-package-install-hook-rule.md)
+- [012 — Failed-Run disposition: park at `ready-for-human`, defer retry budget](./012-failed-run-disposition.md)
