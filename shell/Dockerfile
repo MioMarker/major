@@ -49,8 +49,8 @@ RUN curl -fsSL https://deno.land/install.sh \
 
 # ────────────────────────────────────────────────────────────────────
 # Claude Code CLI — the Tachikoma. Installed as the `agent` user (below).
-# Runs in `--dangerously-skip-permissions --print` mode inside the sandbox;
-# isolation is the container itself, not Claude's permission prompts.
+# Runs in --print mode inside the sandbox; per ADR 005, a PreToolUse hook
+# records every Bash command to major-record-telemetry for observability.
 # ────────────────────────────────────────────────────────────────────
 RUN groupadd -g 1100 agent \
     && useradd -m -d /home/agent -s /bin/bash -u 1100 -g 1100 agent \
@@ -75,6 +75,8 @@ RUN npm install --no-audit --no-fund
 
 COPY main.ts tachikoma.ts ./
 COPY prompts/ ./prompts/
+COPY sandbox-pretooluse-bash.sh sandbox-claude-settings.json ./
+RUN chmod +x sandbox-pretooluse-bash.sh
 RUN npx tsc
 
 # tachikoma.ts resolves prompt paths via path.join(__dirname, "prompts").

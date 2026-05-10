@@ -60,6 +60,9 @@ verify_jwt = false
 [functions.major-start-auto-triage]
 verify_jwt = false
 
+[functions.major-record-telemetry]
+verify_jwt = false
+
 [functions.major-github-webhook]
 verify_jwt = false
 
