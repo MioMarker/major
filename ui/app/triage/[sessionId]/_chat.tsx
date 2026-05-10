@@ -10,6 +10,7 @@ import {
   finalizeTriageSession,
   sendTriageMessage,
 } from "@/lib/api/triage";
+import { getSessionToken } from "@/lib/auth";
 import type { TriageMessage, TriageSession } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -27,14 +28,16 @@ export function TriageChat({ session }: { session: TriageSession }) {
     if (!content) return;
     setDraft("");
     startSend(async () => {
-      const result = await sendTriageMessage(session.id, content);
+      const authToken = (await getSessionToken()) ?? undefined;
+      const result = await sendTriageMessage(session.id, content, authToken);
       setMessages((prev) => [...prev, ...result.messages]);
     });
   }
 
   function handleApply() {
     startApply(async () => {
-      const cs = await finalizeTriageSession(session.id);
+      const authToken = (await getSessionToken()) ?? undefined;
+      const cs = await finalizeTriageSession(session.id, authToken);
       setPendingChangeSet({
         id: cs.id,
         needs_human_apply: cs.needs_human_apply,

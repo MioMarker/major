@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { rearmBrief } from "@/lib/api/briefs";
+import { getSessionToken } from "@/lib/auth";
 
 export function RearmBriefButton({ briefId }: { briefId: number }) {
   const router = useRouter();
@@ -26,7 +27,8 @@ export function RearmBriefButton({ briefId }: { briefId: number }) {
     setError(null);
     startTransition(async () => {
       try {
-        await rearmBrief(briefId, reason || undefined);
+        const authToken = (await getSessionToken()) ?? undefined;
+        await rearmBrief(briefId, reason || undefined, authToken);
         setOpen(false);
         setReason("");
         router.refresh();

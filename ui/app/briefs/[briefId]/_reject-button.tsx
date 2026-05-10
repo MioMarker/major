@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { rejectBrief } from "@/lib/api/briefs";
+import { getSessionToken } from "@/lib/auth";
 
 export function RejectBriefButton({ briefId }: { briefId: number }) {
   const router = useRouter();
@@ -23,7 +24,8 @@ export function RejectBriefButton({ briefId }: { briefId: number }) {
 
   function handleReject() {
     startTransition(async () => {
-      await rejectBrief(briefId, reason || "rejected via UI");
+      const authToken = (await getSessionToken()) ?? undefined;
+      await rejectBrief(briefId, reason || "rejected via UI", authToken);
       setOpen(false);
       router.refresh();
     });

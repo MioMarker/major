@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { confirmQa } from "@/lib/api/briefs";
+import { getSessionToken } from "@/lib/auth";
 
 export function ConfirmQaButton({
   briefId,
@@ -18,7 +19,8 @@ export function ConfirmQaButton({
 
   function handleClick() {
     startTransition(async () => {
-      await confirmQa(briefId);
+      const authToken = (await getSessionToken()) ?? undefined;
+      await confirmQa(briefId, authToken);
       setConfirmed(true);
       router.refresh();
     });
