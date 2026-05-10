@@ -219,7 +219,8 @@ Two orthogonal authorization axes (ADR 002 = file axis; ADR 005 = command axis) 
 
 - **Audit hook** — `shell/sandbox-pretooluse-bash.sh` (ADR 005 Phase 1) records every Tachikoma `Bash` invocation as a `tachikoma-bash-observed` Telemetry Record before exec.
 - **Deny list** — `shell/sandbox-claude-settings.json` `permissions.deny` (ADR 008) blocks 8 patterns: `.git` directory destruction (bare and nested), `git push --force` / `-f`, `git config --global`, and `npm` / `yarn` / `pnpm publish`.
-- **Deferred to follow-up** — pipe-to-shell installers (`curl … | sh`) and ad-hoc package install (`npm install <pkg>`) cannot be expressed via `permissions.deny` cleanly; both await a future PreToolUse-hook-level rule (ADR 009 candidate). Container isolation remains the v1 protection for these.
+- **Ad-hoc package install discriminator** — `shell/sandbox-pretooluse-bash.sh` (ADR 009) extends the audit hook to block `npm install <pkg>` / `yarn add <pkg>` / `pnpm add <pkg>` / `bun add <pkg>` (installs with a non-flag positional arg) while permitting bare `npm install` / `yarn install` / `pnpm install` / `bun install` (resolving from `package.json`). Blocked invocations `exit 2` and produce a second Telemetry Record with `decision='denied' matched_rule='ad-hoc-package-install'`.
+- **Deferred to follow-up** — pipe-to-shell installers (`curl … | sh`) cannot be expressed via `permissions.deny` cleanly; container isolation remains the v1 protection.
 - **`sudo` deliberately omitted** from v1 deny list — calibration showed legitimate `sudo npx playwright install-deps` usage.
 
 ## Schema overview

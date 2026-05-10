@@ -241,7 +241,7 @@ If the failure is recurring and operationally painful, the v2 fix is a polling r
 
 **What it looks like.** A Tachikoma `Bash` invocation is refused by Claude Code's `permissions.deny` enforcement (one of the 8 patterns in `shell/sandbox-claude-settings.json`). The Tachikoma sees the refusal in its tool-result; depending on the Run's progress, it may park-for-human, retry with a different command, or end the Run with an unrecoverable failure.
 
-**Detection.** Per ADR 005 § "Telemetry semantics" once the audit hook is enriched (separate follow-up work), denied commands appear in `major.telemetry_records` as `observation_type='tachikoma-bash-observed'` with `payload.decision='denied'` and `payload.matched_rule=<rule>`. Until the hook enrichment lands, denial is detectable only via Claude Code's tool-result transcript and the absence of a corresponding `decision='observed'` record for the attempted command.
+**Detection.** Denied commands appear in `major.telemetry_records` as `observation_type='tachikoma-bash-observed'` with `payload.decision='denied'` and `payload.matched_rule=<rule>`. For `permissions.deny` blocks (ADR 008), `matched_rule` is the matched glob pattern. For hook-level blocks (ADR 009), `matched_rule` is `'ad-hoc-package-install'`.
 
 **Automated handling.** None — the deny is the handling. The Run continues; the Tachikoma may recover or may park.
 
@@ -253,4 +253,13 @@ If the failure is recurring and operationally painful, the v2 fix is a polling r
    - Rebuild + redeploy the Shell image.
 3. **If the deny pattern is structurally wrong** (e.g. matches commands the docs say it shouldn't), open an issue immediately and consider an emergency PR to remove the rule pending investigation.
 
-The deferred categories from ADR 008 (`pipe-to-shell`, `npm install <pkg>`, `sudo`) are NOT covered by the deny list — denial of those depends on container isolation (for the first two) and operator vigilance (for `sudo`). If a Tachikoma runs one of those and causes damage, that is a different failure mode (pre-Phase-2 surface area).
+The remaining deferred categories from ADR 008 (`pipe-to-shell`, `sudo`) are NOT covered by the deny list or the hook — denial of those depends on container isolation (for `pipe-to-shell`) and operator vigilance (for `sudo`). If a Tachikoma runs one of those and causes damage, that is a different failure mode (pre-Phase-2 surface area).
+
+**Sub-case: `matched_rule='ad-hoc-package-install'` (ADR 009).** Ad-hoc package installs (`npm install <pkg>`, `yarn add <pkg>`, `pnpm add <pkg>`, `bun add <pkg>`) are caught by the audit hook discriminator; the hook emits a `decision='denied'` Telemetry Record and `exit 2`, blocking the Bash invocation before `permissions.deny` is evaluated. The Tachikoma receives a human-readable denial message on stderr. The Run continues; the Tachikoma may park-for-human faster or adapt to not needing the install. If the block was a false-positive (a Brief whose `expected_paths` includes `package.json` and whose work legitimately requires adding a dep), split the dep-add into its own Brief with `package.json` + the relevant lockfile in `expected_paths`, per ADR 009 § "Operator path for legitimate package installs." To audit denied installs:
+
+```sql
+select run_id, payload->>'command', created_at
+from major.telemetry_records
+where payload->>'matched_rule' = 'ad-hoc-package-install'
+order by created_at desc;
+```
