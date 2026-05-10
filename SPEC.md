@@ -45,11 +45,12 @@ ready-for-triage  (initial; path-blocker evaluates here on Change Set apply)
 agent-running  (single active Run; coordination metadata live)
   │   Run Finalization Transaction
   ├─→ ready-for-review  (CI green, PR open, reviewer Tachikoma comments posted)
-  │       │   human merges PR (pr_status: open → merged)
-  │       │   human pushes "QA confirmed" in UI
-  │       └─→ done  (terminal; accepted Event)
+  │       │   PR-merge webhook (ADR 007) OR human pushes "QA confirmed" in UI
+  │       │   → done  (terminal; accepted Event; Actor=human:<merger.login> on webhook path)
+  │       │   PR-closed-without-merge webhook (ADR 007) OR human reject in UI
+  │       │   → wontfix  (terminal; Actor=human:<closer.login> on webhook path)
   ├─→ ready-for-human  (failure not retry-safe; Human Handoff Event)
-  │       └─→ ready-for-agent (resolved) or wontfix (rejected)
+  │       └─→ ready-for-agent (resolved) or wontfix (rejected) or done (PR-merge webhook)
   └─→ ready-for-agent  (failure retry-safe; lease expired or transient sandbox error;
                         next Run reuses same major/brief-<id> branch)
 
@@ -69,8 +70,9 @@ terminal: done | wontfix
 | agent-running → ready-for-human | Shell OR System Run Cancellation | Run Finalization with Human Handoff Event |
 | agent-running → ready-for-agent | System Run Cancellation OR Reaper (lease expiry) | clean retry only |
 | any → ready-for-human | Human Run Cancellation | always routes here per Foundry rule |
-| ready-for-review → done | human | acceptance Event after PR merged + QA confirmed |
-| ready-for-review → wontfix | human | rejected Event |
+| ready-for-review → done | human (UI confirm) OR PR-merge webhook (ADR 007) | acceptance Event; webhook path attributes Actor as `human:<merger.login>`, also closes source GitHub issue if `briefs.source_issue_*` is populated |
+| ready-for-review → wontfix | human (UI reject) OR PR-closed-without-merge webhook (ADR 007) | rejected Event; webhook path attributes Actor as `human:<closer.login>` |
+| ready-for-human → done / wontfix | PR-merge / PR-closed webhook (ADR 007) | same attribution rules; absorbs the case where a parked Brief's PR is acted on directly |
 
 **Single Active Run Rule** (DB invariant): `UNIQUE(brief_id) WHERE outcome='running'`.
 
@@ -210,6 +212,15 @@ Logic: any `expected_paths` intersection OR mass-rerank → Change Set queued fo
 
 - **Repair Inspection Trigger** — signal asking system to inspect potentially inconsistent state (heartbeat lapse, finalization failure, divergent branch); does NOT decide outcome
 - **Lease-Expiry Reaper** — cron job that marks expired claims; can trigger Repair Run
+
+### Command observability and policy
+
+Two orthogonal authorization axes (ADR 002 = file axis; ADR 005 = command axis) constrain what the Tachikoma can do inside the sandbox.
+
+- **Audit hook** — `shell/sandbox-pretooluse-bash.sh` (ADR 005 Phase 1) records every Tachikoma `Bash` invocation as a `tachikoma-bash-observed` Telemetry Record before exec.
+- **Deny list** — `shell/sandbox-claude-settings.json` `permissions.deny` (ADR 008) blocks 8 patterns: `.git` directory destruction (bare and nested), `git push --force` / `-f`, `git config --global`, and `npm` / `yarn` / `pnpm publish`.
+- **Deferred to follow-up** — pipe-to-shell installers (`curl … | sh`) and ad-hoc package install (`npm install <pkg>`) cannot be expressed via `permissions.deny` cleanly; both await a future PreToolUse-hook-level rule (ADR 009 candidate). Container isolation remains the v1 protection for these.
+- **`sudo` deliberately omitted** from v1 deny list — calibration showed legitimate `sudo npx playwright install-deps` usage.
 
 ## Schema overview
 
