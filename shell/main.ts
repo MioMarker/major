@@ -457,9 +457,13 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
     nextStatus = "ready-for-human";
     summary = "implementer reported expected-paths-insufficient";
   } else {
-    // Generic implementer failure. Retry-safe.
+    // Generic implementer failure. Park for human review rather than re-arming
+    // the brief immediately — there's no retry budget yet (#17), so a
+    // persistent implementer failure here would produce a tight reclaim loop
+    // (~2 runs/sec) until a human intervenes. Same hazard class as the
+    // executeRun-throws path patched in #21; same minimal fix.
     outcome = "failed";
-    nextStatus = "ready-for-agent";
+    nextStatus = "ready-for-human";
     summary = `implementer failed (exit=${implementer.exitCode})`;
   }
 
