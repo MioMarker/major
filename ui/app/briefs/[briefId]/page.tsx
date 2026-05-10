@@ -26,30 +26,10 @@ import {
 } from "@/components/ui/table";
 import { getBrief } from "@/lib/api/briefs";
 import { getServerAuthToken } from "@/lib/auth-server";
-import { formatDuration, formatRelativeAge, formatTokenCount } from "@/lib/utils";
+import { formatRelativeAge } from "@/lib/utils";
+import { TelemetryTab } from "@/components/briefs/TelemetryTab";
 import { RearmBriefButton } from "./_rearm-button";
 import { RejectBriefButton } from "./_reject-button";
-import { TelemetryRows } from "./_telemetry-rows";
-
-const BASH_OBSERVED = "tachikoma-bash-observed";
-
-function topBashCommands(
-  records: ReadonlyArray<{ observation_type: string; payload: Record<string, unknown> }>,
-  limit = 10,
-): Array<{ verb: string; count: number }> {
-  const counts = new Map<string, number>();
-  for (const rec of records) {
-    if (rec.observation_type !== BASH_OBSERVED) continue;
-    const cmd = typeof rec.payload.command === "string" ? rec.payload.command : "";
-    const verb = cmd.trim().split(/\s+/)[0] ?? "";
-    if (!verb) continue;
-    counts.set(verb, (counts.get(verb) ?? 0) + 1);
-  }
-  return Array.from(counts.entries())
-    .map(([verb, count]) => ({ verb, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, limit);
-}
 
 const TERMINAL = new Set(["done", "wontfix"]);
 
@@ -66,8 +46,6 @@ export default async function BriefDetailPage({ params }: PageProps) {
 
   const isTerminal = TERMINAL.has(brief.status);
   const prArtifact = brief.artifacts.find((a) => a.artifact_type === "git-change");
-  const bashTop = topBashCommands(brief.telemetry_records);
-  const runById = new Map(brief.runs.map((r) => [r.id, r]));
 
   return (
     <AppShell active="/">
@@ -361,155 +339,7 @@ export default async function BriefDetailPage({ params }: PageProps) {
         </TabsContent>
 
         <TabsContent value="telemetry">
-          <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Run summaries</CardTitle>
-                <CardDescription>
-                  ADR 006 hoist columns from <code className="font-mono">major.runs</code>.
-                  Implementer phase only — reviewer-phase metrics live in the Verification
-                  tab and the rows below (issue #24).
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {brief.runs.length === 0 && (
-                  <p className="text-sm text-muted-foreground">No runs yet.</p>
-                )}
-                {brief.runs.map((run) => (
-                  <div key={run.id} className="rounded-md border p-4">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono text-sm font-semibold">#{run.id}</span>
-                        <Badge
-                          variant={
-                            run.outcome === "succeeded"
-                              ? "default"
-                              : run.outcome === "running"
-                                ? "secondary"
-                                : "destructive"
-                          }
-                        >
-                          {run.outcome}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">{run.purpose}</span>
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                        {formatRelativeAge(run.started_at)} ago
-                      </span>
-                    </div>
-                    <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-4">
-                      <div>
-                        <dt className="text-muted-foreground">Turns</dt>
-                        <dd className="font-mono">{run.num_turns ?? "—"}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">Duration</dt>
-                        <dd className="font-mono">{formatDuration(run.duration_ms)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">Input tok</dt>
-                        <dd className="font-mono">{formatTokenCount(run.input_tokens)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">Output tok</dt>
-                        <dd className="font-mono">{formatTokenCount(run.output_tokens)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">Cache read</dt>
-                        <dd className="font-mono">{formatTokenCount(run.cache_read_tokens)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">Cache write</dt>
-                        <dd className="font-mono">{formatTokenCount(run.cache_write_tokens)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">Stream events</dt>
-                        <dd className="font-mono">{run.tachikoma_event_sequence}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">Shell</dt>
-                        <dd className="font-mono">{run.shell_id ?? "—"}</dd>
-                      </div>
-                    </dl>
-                    {run.final_text && (
-                      <details className="mt-3">
-                        <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-                          final_text ({run.final_text.length} chars)
-                        </summary>
-                        <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-muted p-3 font-mono text-xs">
-                          {run.final_text}
-                        </pre>
-                      </details>
-                    )}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Bash commands (top {bashTop.length || "—"})</CardTitle>
-                <CardDescription>
-                  Top verbs aggregated from <code className="font-mono">{BASH_OBSERVED}</code>{" "}
-                  records across this Brief&apos;s Runs. Primary signal for ADR 005 Phase 2 deny-list
-                  calibration.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Verb</TableHead>
-                      <TableHead className="text-right">Count</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {bashTop.map((entry) => (
-                      <TableRow key={entry.verb}>
-                        <TableCell className="font-mono text-xs">{entry.verb}</TableCell>
-                        <TableCell className="text-right font-mono text-xs">
-                          {entry.count}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {bashTop.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={2} className="py-8 text-center text-muted-foreground">
-                          No bash observations recorded.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Telemetry records</CardTitle>
-                <CardDescription>
-                  Last {brief.telemetry_records.length} records from{" "}
-                  <code className="font-mono">major.telemetry_records</code> (capped at 200,
-                  newest first).
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-28">Run</TableHead>
-                      <TableHead className="w-40">Type</TableHead>
-                      <TableHead>Summary</TableHead>
-                      <TableHead className="w-24">When</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    <TelemetryRows records={brief.telemetry_records} runById={runById} />
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </div>
+          <TelemetryTab runs={brief.runs} telemetryRecords={brief.telemetry_records} />
         </TabsContent>
 
         <TabsContent value="relationships">
