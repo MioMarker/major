@@ -50,3 +50,4 @@ This preserves the historical record of why we believed what we believed at the 
 - [009 — PreToolUse hook discrimination for ad-hoc package installs](./009-package-install-hook-rule.md)
 - [012 — Failed-Run disposition: park at `ready-for-human`, defer retry budget](./012-failed-run-disposition.md)
 - [013 — Planner output contract: Markdown plan file at `/work/.major/plan.md`](./013-planner-output-contract.md)
+- [014 — Run retry budget: per-Brief cap, resets on new Content Revision, auto-attempt below cap](./014-run-retry-budget.md)
