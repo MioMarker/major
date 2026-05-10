@@ -27,6 +27,12 @@
 [functions.major-create-triage-session]
 verify_jwt = false
 
+[functions.major-list-triage-sessions]
+verify_jwt = false
+
+[functions.major-get-triage-session]
+verify_jwt = false
+
 [functions.major-send-triage-message]
 verify_jwt = false
 
