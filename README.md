@@ -2,6 +2,8 @@
 
 AFK agent orchestrator. Intakes engineering work via Triage Sessions, fans into vertical-slice Briefs, dispatches them to sandboxed Shells for agent execution, surfaces results for human review.
 
+**Status:** v1 — internal use only, two-dev development.
+
 Drives **HealthBite** (`~/Projects/healthbite`) and **Healix** (`~/Projects/healix`). State — the **Cyberbrain** — lives in the existing Supabase dev project (`nuihvxluxdpdjgkvtdih`) under a `major.*` schema.
 
 The component vocabulary (Brief, Shell, Tachikoma, Cyberbrain) follows ADR 004 (`docs/adr/004-ghost-in-the-shell-naming.md`).
