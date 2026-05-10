@@ -43,3 +43,5 @@ This preserves the historical record of why we believed what we believed at the 
 - [002 — Path-Blocker Rule decides which Triage Change Sets need human apply](./002-path-blocker-rule.md)
 - [003 — `dev` is the integration branch; `main` is the release branch](./003-dev-as-integration-branch.md)
 - [004 — Ghost in the Shell naming convention](./004-ghost-in-the-shell-naming.md)
+- [005 — Tachikoma command observability and policy via Claude Code permissions](./005-tachikoma-command-observability.md)
+- [006 — Structured Tachikoma telemetry via Claude Code stream-json output](./006-tachikoma-stream-json-telemetry.md)
