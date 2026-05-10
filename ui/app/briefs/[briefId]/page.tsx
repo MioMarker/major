@@ -27,6 +27,7 @@ import {
 import { getBrief } from "@/lib/api/briefs";
 import { getServerAuthToken } from "@/lib/auth-server";
 import { formatDuration, formatRelativeAge, formatTokenCount } from "@/lib/utils";
+import { RearmBriefButton } from "./_rearm-button";
 import { RejectBriefButton } from "./_reject-button";
 import { TelemetryRows } from "./_telemetry-rows";
 
@@ -100,6 +101,7 @@ export default async function BriefDetailPage({ params }: PageProps) {
               PR ↗
             </Link>
           )}
+          {brief.status === "ready-for-human" && <RearmBriefButton briefId={brief.id} />}
           {!isTerminal && <RejectBriefButton briefId={brief.id} />}
         </div>
       </div>
