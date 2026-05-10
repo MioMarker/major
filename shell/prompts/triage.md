@@ -66,7 +66,7 @@ Always include a `placement_reason` (free-text justification: "blocking #234", "
 
 #### Relationships
 
-If `contentMd` references other Briefs by `Major-item: <id>`, propose `add-relationship` ops:
+If `contentMd` references other Briefs by `Major-brief: <id>` (or the legacy form `Major-item: <id>` from pre-rename history), propose `add-relationship` ops:
 
 - `parent-child` for decomposition (this Brief is a child of an `epic` or `parent`).
 - `blocks` if this Brief must complete before another can start.

@@ -51,7 +51,7 @@ git log origin/<item.baseBranch>..origin/major/brief-<item.id> --oneline
 Record:
 
 - Are there commits on `major/brief-<id>` ahead of `<baseBranch>`?
-- If yes: how many, and do their commit messages reference `Major-item: <id>`?
+- If yes: how many, and do their commit messages reference `Major-brief: <id>` (or the legacy form `Major-item: <id>` from pre-rename history)?
 - If no: branch is bare; the implementer didn't push, or pushed and force-removed.
 
 ### 2. PR state
