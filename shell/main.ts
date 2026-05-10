@@ -349,7 +349,10 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
       verifications.push({
         check_name: v.check,
         outcome: v.outcome === "pass" ? "pass" : v.outcome === "fail" ? "fail" : "skipped",
-        required: true,
+        // Skipped checks are advisory: the implementer self-reports `skipped`
+        // only when a check is inapplicable to the diff (e.g. tsc-noemit on a
+        // doc-only diff). Pass/fail outcomes stay required per artifact-type-policy.
+        required: v.outcome !== "skipped",
         requiredness_source: "artifact-type-policy",
         payload: { durationMs: v.duration_ms ?? null },
       });
