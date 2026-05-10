@@ -20,3 +20,18 @@ export function formatRelativeAge(iso: string): string {
   const mo = Math.floor(day / 30);
   return `${mo}mo`;
 }
+
+export function formatDuration(ms: number | null): string {
+  if (ms === null) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  const sec = ms / 1000;
+  if (sec < 60) return `${sec.toFixed(1)}s`;
+  const min = Math.floor(sec / 60);
+  const remSec = Math.round(sec % 60);
+  return `${min}m ${remSec}s`;
+}
+
+export function formatTokenCount(n: number | null): string {
+  if (n === null) return "—";
+  return n.toLocaleString("en-US");
+}

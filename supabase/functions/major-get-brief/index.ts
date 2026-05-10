@@ -1,19 +1,19 @@
 // supabase/functions/major-get-brief/index.ts
 //
 // GET /major-get-brief?briefId=<n>
-//   200: {
-//     brief: Brief,
-//     contentRevisions: BriefContentRevision[],   // newest first
-//     events: Event[],                            // last 50, newest first
+//   200: BriefDetail — i.e. the brief row spread at the top level, plus:
+//     current_revision: BriefContentRevision | null,  // resolved from current_revision_id
+//     revisions: BriefContentRevision[],              // newest first
+//     events: Event[],                                // last 50, newest first
 //     runs: Run[],
-//     verificationResults: VerificationResult[],   // joined under their run
+//     verification_results: VerificationResult[],     // joined under their run
 //     artifacts: BriefArtifact[],
-//     relationships: { asParent: BriefRelationship[], asChild: BriefRelationship[] }
-//   }
+//     telemetry_records: TelemetryRecord[],           // last 200, newest first
+//     relationships: Array<BriefRelationship & { related_brief: { id, status } }>
 //
-// One round-trip per relation (Postgres-side joins via embedded selects
-// would be cleaner once we lock the column shape; v1 keeps each query
-// explicit so payload shape evolution is obvious).
+// Wire shape matches `ui/lib/types.ts:BriefDetail`. PostgREST returns rows in
+// snake_case; we keep top-level keys snake_case too so the UI consumes the
+// response without a transformation layer.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleOptions } from "../_shared/cors.ts";
@@ -40,12 +40,12 @@ Deno.serve(async (req) => {
       auth.client.from("briefs").select("*").eq("id", briefId).single(),
       auth.client
         .from("brief_content_revisions")
-        .select("id, revision_number, content_md, author_actor, reason, created_at")
+        .select("id, brief_id, revision_number, content_md, author_actor, reason, created_at")
         .eq("brief_id", briefId)
         .order("revision_number", { ascending: false }),
       auth.client
         .from("events")
-        .select("id, type, actor, payload, idempotency_key, run_id, created_at")
+        .select("id, brief_id, type, actor, payload, idempotency_key, run_id, created_at")
         .eq("brief_id", briefId)
         .order("created_at", { ascending: false })
         .limit(50),
@@ -57,11 +57,11 @@ Deno.serve(async (req) => {
       auth.client.from("brief_artifacts").select("*").eq("brief_id", briefId),
       auth.client
         .from("brief_relationships")
-        .select("id, parent_id, child_id, type, parent_review_requirement, excluded_reason, created_at")
+        .select("id, parent_id, child_id, type, parent_review_requirement, excluded_reason, excluded_by_actor, created_at")
         .eq("parent_id", briefId),
       auth.client
         .from("brief_relationships")
-        .select("id, parent_id, child_id, type, parent_review_requirement, excluded_reason, created_at")
+        .select("id, parent_id, child_id, type, parent_review_requirement, excluded_reason, excluded_by_actor, created_at")
         .eq("child_id", briefId),
     ]);
 
@@ -69,32 +69,82 @@ Deno.serve(async (req) => {
       return errorResponse(brief.error?.message ?? "brief not found", 404);
     }
 
-    // Verification results scoped to this Brief's runs.
+    // Verification results + telemetry records scoped to this Brief's runs.
     const runIds = (runs.data ?? []).map((r) => r.id);
     let verificationResults: unknown[] = [];
+    let telemetryRecords: unknown[] = [];
     if (runIds.length > 0) {
-      const { data: vr, error: vrErr } = await auth.client
-        .from("verification_results")
-        .select("*")
-        .in("run_id", runIds);
-      if (vrErr) {
-        console.error("[major-get-brief] verification fetch failed:", vrErr);
+      const [vrResp, trResp] = await Promise.all([
+        auth.client.from("verification_results").select("*").in("run_id", runIds),
+        auth.client
+          .from("telemetry_records")
+          .select("*")
+          .in("run_id", runIds)
+          .order("created_at", { ascending: false })
+          .limit(200),
+      ]);
+      if (vrResp.error) {
+        console.error("[major-get-brief] verification fetch failed:", vrResp.error);
       } else {
-        verificationResults = vr ?? [];
+        verificationResults = vrResp.data ?? [];
+      }
+      if (trResp.error) {
+        console.error("[major-get-brief] telemetry fetch failed:", trResp.error);
+      } else {
+        telemetryRecords = trResp.data ?? [];
       }
     }
 
+    // Build the flat relationships array with related_brief joined. From this
+    // brief's POV, the related brief is the OTHER side: child for asParent
+    // rows, parent for asChild rows.
+    const asParentRows = relAsParent.data ?? [];
+    const asChildRows = relAsChild.data ?? [];
+    const relatedBriefIds = Array.from(
+      new Set([
+        ...asParentRows.map((r) => r.child_id),
+        ...asChildRows.map((r) => r.parent_id),
+      ]),
+    );
+    const relatedBriefById = new Map<number, { id: number; status: string }>();
+    if (relatedBriefIds.length > 0) {
+      const { data: relatedBriefs, error: rbErr } = await auth.client
+        .from("briefs")
+        .select("id, status")
+        .in("id", relatedBriefIds);
+      if (rbErr) {
+        console.error("[major-get-brief] related-brief fetch failed:", rbErr);
+      } else {
+        for (const rb of relatedBriefs ?? []) {
+          relatedBriefById.set(rb.id, { id: rb.id, status: rb.status });
+        }
+      }
+    }
+    const relationships = [
+      ...asParentRows.map((r) => ({
+        ...r,
+        related_brief: relatedBriefById.get(r.child_id) ?? { id: r.child_id, status: "unknown" },
+      })),
+      ...asChildRows.map((r) => ({
+        ...r,
+        related_brief: relatedBriefById.get(r.parent_id) ?? { id: r.parent_id, status: "unknown" },
+      })),
+    ];
+
+    const revisionRows = revisions.data ?? [];
+    const currentRevision =
+      revisionRows.find((r) => r.id === brief.data.current_revision_id) ?? null;
+
     return jsonResponse({
-      brief: brief.data,
-      contentRevisions: revisions.data ?? [],
+      ...brief.data,
+      current_revision: currentRevision,
+      revisions: revisionRows,
       events: events.data ?? [],
       runs: runs.data ?? [],
-      verificationResults,
+      verification_results: verificationResults,
       artifacts: artifacts.data ?? [],
-      relationships: {
-        asParent: relAsParent.data ?? [],
-        asChild: relAsChild.data ?? [],
-      },
+      telemetry_records: telemetryRecords,
+      relationships,
     });
   } catch (err) {
     console.error("[major-get-brief]", err);
