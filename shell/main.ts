@@ -588,15 +588,44 @@ async function waitForCI(args: {
         "-R",
         args.gitRepositoryRef,
         "--json",
-        "name,state,conclusion",
+        // `bucket` categorises each check's state into one of:
+        //   pass | fail | pending | skipping | cancel
+        // Earlier code referenced `conclusion` which is not a valid field
+        // on `gh pr checks --json`; gh exited 0 with empty stdout + an
+        // error on stderr, so JSON.parse threw on every poll iteration
+        // and the loop ran out the 20-minute timeout instead of resolving.
+        "name,bucket",
       ], { cwd: args.sandboxDir });
+
+      // gh exits non-zero with stderr "no checks reported on the '<branch>'
+      // branch" when the PR has no associated workflow runs. Treat that
+      // (and any other non-zero exit with empty stdout) as "no checks
+      // configured" — advisory skip — rather than letting JSON.parse on
+      // empty stdout throw and burn the 20-minute poll budget.
+      if (result.exitCode !== 0 || result.stdout.trim().length === 0) {
+        if (result.stderr.includes("no checks reported")) {
+          return {
+            outcome: "skipped",
+            durationMs: Date.now() - startedAt,
+            summary: "no CI checks registered on this PR",
+          };
+        }
+        // Some other gh failure mode — log and keep polling within the
+        // existing budget; transient errors (rate limits, network) clear.
+        log("debug", "gh pr checks returned non-success; will retry", {
+          exitCode: result.exitCode,
+          stderr: result.stderr.slice(0, 200),
+        });
+        await sleep(CI_POLL_INTERVAL_MS);
+        continue;
+      }
+
       const checks = JSON.parse(result.stdout) as Array<{
         name: string;
-        state: string;
-        conclusion: string | null;
+        bucket: "pass" | "fail" | "pending" | "skipping" | "cancel";
       }>;
 
-      // No checks configured at all → treat as skipped (advisory).
+      // No checks reported via JSON either → also treat as skipped.
       if (checks.length === 0) {
         return {
           outcome: "skipped",
@@ -605,12 +634,10 @@ async function waitForCI(args: {
         };
       }
 
-      const stillRunning = checks.filter(
-        (c) => c.state !== "COMPLETED" && c.state !== "SUCCESS" && c.state !== "FAILURE",
-      );
-      const failed = checks.filter((c) => c.conclusion === "FAILURE" || c.conclusion === "TIMED_OUT" || c.conclusion === "CANCELLED");
+      const pending = checks.filter((c) => c.bucket === "pending");
+      const failed = checks.filter((c) => c.bucket === "fail" || c.bucket === "cancel");
 
-      if (stillRunning.length === 0) {
+      if (pending.length === 0) {
         if (failed.length > 0) {
           return {
             outcome: "fail",
