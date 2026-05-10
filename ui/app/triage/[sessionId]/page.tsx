@@ -3,6 +3,7 @@ import { AppShell } from "@/components/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getTriageSession } from "@/lib/api/triage";
+import { getServerAuthToken } from "@/lib/auth-server";
 import { TriageChat } from "./_chat";
 
 interface PageProps {
@@ -12,7 +13,8 @@ interface PageProps {
 export default async function TriageSessionPage({ params }: PageProps) {
   const sessionId = Number(params.sessionId);
   if (Number.isNaN(sessionId)) notFound();
-  const session = await getTriageSession(sessionId);
+  const authToken = await getServerAuthToken();
+  const session = await getTriageSession(sessionId, authToken ?? undefined);
   if (!session) notFound();
 
   return (

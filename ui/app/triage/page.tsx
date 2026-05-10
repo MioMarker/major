@@ -10,11 +10,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { listTriageSessions } from "@/lib/api/triage";
+import { getServerAuthToken } from "@/lib/auth-server";
 import { formatRelativeAge } from "@/lib/utils";
 import { NewTriageSessionButton } from "./_new-session-button";
 
 export default async function TriageListPage() {
-  const sessions = await listTriageSessions();
+  const authToken = await getServerAuthToken();
+  const sessions = await listTriageSessions(authToken ?? undefined);
 
   return (
     <AppShell active="/triage">

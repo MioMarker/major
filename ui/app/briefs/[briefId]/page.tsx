@@ -25,6 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getBrief } from "@/lib/api/briefs";
+import { getServerAuthToken } from "@/lib/auth-server";
 import { formatDuration, formatRelativeAge, formatTokenCount } from "@/lib/utils";
 import { RejectBriefButton } from "./_reject-button";
 
@@ -57,7 +58,8 @@ interface PageProps {
 export default async function BriefDetailPage({ params }: PageProps) {
   const briefId = Number(params.briefId);
   if (Number.isNaN(briefId)) notFound();
-  const brief = await getBrief(briefId);
+  const authToken = await getServerAuthToken();
+  const brief = await getBrief(briefId, authToken ?? undefined);
   if (!brief) notFound();
 
   const isTerminal = TERMINAL.has(brief.status);
