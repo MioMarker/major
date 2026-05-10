@@ -82,3 +82,18 @@ export async function rejectBrief(
     authToken,
   });
 }
+
+export async function rearmBrief(
+  briefId: number,
+  reason?: string,
+  authToken?: string,
+): Promise<{ briefId: number; status: "ready-for-agent" }> {
+  if (USE_MOCK) {
+    return { briefId, status: "ready-for-agent" };
+  }
+  return majorFetch<{ briefId: number; status: "ready-for-agent" }>("major-rearm-brief", {
+    method: "POST",
+    body: { briefId, reason },
+    authToken,
+  });
+}

@@ -57,6 +57,9 @@ verify_jwt = false
 [functions.major-reject-brief]
 verify_jwt = false
 
+[functions.major-rearm-brief]
+verify_jwt = false
+
 [functions.major-start-auto-triage]
 verify_jwt = false
 
