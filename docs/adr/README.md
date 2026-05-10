@@ -47,3 +47,4 @@ This preserves the historical record of why we believed what we believed at the 
 - [006 — Structured Tachikoma telemetry via Claude Code stream-json output](./006-tachikoma-stream-json-telemetry.md)
 - [007 — Auto-close Brief and source GitHub issue on PR terminal events](./007-auto-close-brief-and-issue-on-pr-terminal.md)
 - [008 — Tachikoma bash deny list v1 — Phase 2 calibration and seed](./008-tachikoma-bash-deny-list-v1.md)
+- [009 — PreToolUse hook discrimination for ad-hoc package installs](./009-package-install-hook-rule.md)
