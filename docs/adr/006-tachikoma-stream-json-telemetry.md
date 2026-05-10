@@ -161,3 +161,72 @@ Out of scope: live UI streaming of Telemetry (Brief Detail polls `major.events` 
 - `.claude/rules/shell/sandbox-discipline.md` § "Never Log Secrets" — sanitizer applies to every Telemetry write.
 - ADR 005 — Tachikoma command observability (shares the `major.telemetry_records` write path).
 - `shell/tachikoma.ts` — Tachikoma invocation; the `--output-format stream-json` flag flip lands here.
+
+---
+
+## Amendment: column scope is the primary Tachikoma phase
+
+Date: 2026-05-10
+
+### Background
+
+This ADR was authored when a Run had a single Tachikoma invocation (the implementer). Slice 5 shipped the reviewer phase. With two Tachikoma phases per Run, the original Decision's phrase "summary metrics hoist into new columns on `major.runs`" is ambiguous: *which* phase's metrics?
+
+This amendment resolves the ambiguity and establishes a durable column-scope rule.
+
+### Rule
+
+The `runs.*` summary columns (`num_turns`, `duration_ms`, `final_text`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`) hold the metrics of the **primary Tachikoma phase** only. They are a primary-phase rollup, not a comprehensive Run summary.
+
+**Primary phase** — the phase that performs the core substantive work of the Run. Today that is the implementer. In future Run shapes (planner-only, repair-execute), the primary phase is whichever phase produces the Run's principal artifact.
+
+**Advisory / secondary phases** — phases that support, validate, or audit the primary phase's work without being the principal actor. Today that is the reviewer. Future examples include repair-execute (advisory repair pass), eval-fix (eval-gate advisory), or any triage sub-phase.
+
+Advisory phases **do not** contribute to the row-level rollup. Their metrics live in `major.verification_results.payload` and `major.telemetry_records`.
+
+This framing is consistent with the SPEC's authority model: the `runs.*` row represents the Run as an atomic lifecycle unit, not a trace of every internal Tachikoma invocation. The authority model is what defines which metrics belong on the row.
+
+### Why not a more complete rollup?
+
+A per-phase breakdown on `major.runs` would require either a nested JSONB column (querying becomes ugly) or one row per phase (breaks the Single Active Run Rule and the existing finalization model). Putting advisory-phase metrics in `verification_results.payload` and `telemetry_records` keeps the finalization transaction unchanged and preserves queryability without schema churn.
+
+### Queryable sources for advisory-phase data
+
+**Phase status (e.g., reviewer outcome):**
+
+```sql
+SELECT
+  vr.brief_id,
+  vr.run_id,
+  vr.check_name,          -- e.g. 'tachikoma-reviewer'
+  vr.outcome,             -- 'pass' | 'fail' | 'advisory'
+  vr.payload->>'status'   -- phase-specific status string
+FROM major.verification_results vr
+WHERE vr.run_id = $1
+  AND vr.check_name = 'tachikoma-reviewer';
+```
+
+**Token totals for an advisory phase (from `telemetry_records`):**
+
+```sql
+SELECT
+  SUM((tr.payload->'summary'->>'inputTokens')::integer)        AS input_tokens,
+  SUM((tr.payload->'summary'->>'outputTokens')::integer)       AS output_tokens,
+  SUM((tr.payload->'summary'->>'cacheReadTokens')::integer)    AS cache_read_tokens,
+  SUM((tr.payload->'summary'->>'cacheWriteTokens')::integer)   AS cache_write_tokens
+FROM major.telemetry_records tr
+WHERE tr.run_id = $1
+  AND tr.observation_type = 'tachikoma-stream-event'
+  AND tr.payload->>'shell_id' = $2;   -- scoped to the phase's shell invocation
+```
+
+The `payload` structure follows the stream-json completion event shape; field names will track any upstream format change in lockstep with the parser.
+
+### Future phases
+
+When planner, repair-execute, or other phases ship, the same rule applies with no schema change:
+
+- If the new phase is **primary** for its Run shape, its completion metrics hoist into `runs.*` via the existing Run Finalization Transaction path.
+- If the new phase is **advisory**, its metrics go into `verification_results.payload` (for phase-level status) and `telemetry_records` (for the per-event stream and token attribution). No new columns, no new tables.
+
+The finalization code path that decides which metrics land on `runs.*` is the only place that needs to know whether a phase is primary or advisory — and that decision is made at Run shape design time, not at runtime.
