@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { USE_MOCK } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 
 const NAV: Array<{ href: string; label: string }> = [
@@ -41,7 +42,7 @@ export function AppShell({
             </nav>
           </div>
           <div className="text-xs text-muted-foreground">
-            staging · mock-mode
+            staging · {USE_MOCK ? "mock-mode" : "live"}
           </div>
         </div>
       </header>
