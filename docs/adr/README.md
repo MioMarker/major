@@ -49,6 +49,7 @@ This preserves the historical record of why we believed what we believed at the 
 - [008 — Tachikoma bash deny list v1 — Phase 2 calibration and seed](./008-tachikoma-bash-deny-list-v1.md)
 - [009 — PreToolUse hook discrimination for ad-hoc package installs](./009-package-install-hook-rule.md)
 - [010 — Inbound GitHub issue → Triage Session (opt-in via `major:triage` label)](./010-inbound-github-issue-to-triage-session.md)
+- [011 — Outbound Brief → source GitHub issue resolution comment](./011-outbound-brief-to-issue-resolution-comment.md)
 - [012 — Failed-Run disposition: park at `ready-for-human`, defer retry budget](./012-failed-run-disposition.md)
 - [013 — Planner output contract: Markdown plan file at `/work/.major/plan.md`](./013-planner-output-contract.md)
 - [014 — Run retry budget: per-Brief cap, resets on new Content Revision, auto-attempt below cap](./014-run-retry-budget.md)
