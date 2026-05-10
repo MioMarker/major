@@ -346,13 +346,20 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
   });
   if (implementerOutput?.verifications) {
     for (const v of implementerOutput.verifications) {
+      // Normalize first; the implementer can report variants like "n/a" or
+      // "not-applicable" that should fold into "skipped". Then derive
+      // requiredness from the normalized outcome — checking raw v.outcome
+      // misses non-canonical skip variants and keeps required=true on them,
+      // which fails the run for the same reason issue #40 originally did.
+      const normalizedOutcome: "pass" | "fail" | "skipped" =
+        v.outcome === "pass" ? "pass" : v.outcome === "fail" ? "fail" : "skipped";
       verifications.push({
         check_name: v.check,
-        outcome: v.outcome === "pass" ? "pass" : v.outcome === "fail" ? "fail" : "skipped",
+        outcome: normalizedOutcome,
         // Skipped checks are advisory: the implementer self-reports `skipped`
         // only when a check is inapplicable to the diff (e.g. tsc-noemit on a
         // doc-only diff). Pass/fail outcomes stay required per artifact-type-policy.
-        required: v.outcome !== "skipped",
+        required: normalizedOutcome !== "skipped",
         requiredness_source: "artifact-type-policy",
         payload: { durationMs: v.duration_ms ?? null },
       });
