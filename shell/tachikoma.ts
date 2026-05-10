@@ -202,6 +202,12 @@ export async function runSandboxAgent(input: RunSandboxAgentInput): Promise<Tach
       String(maxTurns),
       "--output-format",
       "stream-json",
+      // The Claude Code CLI hard-rejects `--print --output-format=stream-json`
+      // without `--verbose`: "When using --print, --output-format=stream-json
+      // requires --verbose". `--verbose` enables structured per-event output
+      // on stdout (which is exactly what stream-json mode emits anyway), so
+      // the flag pair is effectively required, not opt-in.
+      "--verbose",
       "--print",
       fullPrompt,
     ],
