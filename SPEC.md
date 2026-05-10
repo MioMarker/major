@@ -223,7 +223,7 @@ Full DDL in `supabase/migrations/20260509000000_initial_schema.sql` (RPCs in `su
 | `major.events` | Lifecycle-changing Events; idempotent via key |
 | `major.telemetry_records` | Operational observations; non-lifecycle |
 | `major.shells` | Shell registry with heartbeat |
-| `major.runs` | Run records with purpose, outcome, coordination metadata |
+| `major.runs` | Run records with purpose, outcome, coordination metadata, plus stream-json summary metrics (`num_turns`, `duration_ms`, `final_text`, token counts, `tachikoma_event_sequence`) per ADR 006 |
 | `major.brief_artifacts` | Produced artifacts (Git Change, PR, Triage Change Set) |
 | `major.verification_results` | Per-Run verification outcomes |
 | `major.triage_sessions` | Durable conversation transcripts |
@@ -275,6 +275,8 @@ Stack: Next.js 14 App Router, Tailwind, `@supabase/supabase-js`, shadcn/ui or si
 - **Phase 2 — runReviewer**: fresh Claude Code subprocess, same sandbox, `git diff dev...HEAD`, posts comments via `gh pr review --comment`, sets `major/review` status check via `gh api`
 - **Heartbeat thread**: every 30s, POST `major-heartbeat`
 - **On Run end**: POST `major-finalize-run` with outcome, verification results, artifact refs
+- **Tachikoma command observability and policy** (per `docs/adr/005-tachikoma-command-observability.md`): the Tachikoma is invoked through Claude Code's permission system rather than `--dangerously-skip-permissions`. A `PreToolUse` hook on `Bash` writes Telemetry Records per command exec to `major.telemetry_records` (Phase 1, audit-only). A small evidence-based deny list ships with the Shell image as `shell/sandbox-claude-settings.json` (Phase 2, after data accrues).
+- **Stream-json telemetry** (per `docs/adr/006-tachikoma-stream-json-telemetry.md`): the Tachikoma is invoked with `--output-format stream-json`. The Shell parses each event line and writes a Telemetry Record (`observation_type='tachikoma-stream-event'`). Summary metrics (`num_turns`, `duration_ms`, token counts, `final_text`) hoist into `major.runs` columns inside the existing Run Finalization Transaction.
 
 ## Tachikoma roles + prompts
 

@@ -47,6 +47,16 @@ Per-Brief lifecycle in main.ts:
 
 Skipping the cleanup steps risks leaking files, partial state, or `.git` configs from one Brief into the next. Don't optimize this away.
 
+## Tachikoma Command Observability
+
+Per `docs/adr/005-tachikoma-command-observability.md`, the Tachikoma is invoked through Claude Code's permission system, not with `--dangerously-skip-permissions`. Two consequences:
+
+1. **Phase 1 (audit-only):** a `PreToolUse` hook on `Bash` writes a Telemetry Record per command exec to `major.telemetry_records` with `observation_type='tachikoma-bash-observed'` and idempotency key `(run_id, 'tachikoma-bash', shell_id, sequence)`. The hook does NOT make enforcement decisions — it observes. Audit data accrues for ~4 weeks before any deny list is authored.
+
+2. **Phase 2 (enforcement):** a small, evidence-based deny list ships with the Shell image as `shell/sandbox-claude-settings.json`. The Shell drops it into the sandbox at clone time. Enforcement happens inside Claude Code's permission gate; Major does not maintain a parallel wrapper.
+
+The previous posture (`--dangerously-skip-permissions`, "container is the trust boundary") was a deliberate v0 choice now revised. Defense in depth: container sandbox + branch protection + fine-grained PATs + this hook + the deny list.
+
 ## Never Log Secrets
 
 Tachikoma's stdout, the Shell's container logs, and any artifact persisted to `major.brief_artifacts` MUST NOT contain secrets.
@@ -54,6 +64,7 @@ Tachikoma's stdout, the Shell's container logs, and any artifact persisted to `m
 - Tachikoma's prompts include a "do not echo any environment variable values" instruction.
 - The Shell's wrapper sanitizes child-process stdout for known secret patterns (Anthropic keys, Supabase service-role keys, GitHub tokens) before persisting.
 - If a secret leaks anyway: rotate per `docs/failure-modes.md` § 14.
+- The secret-sanitization rule applies to every per-event Telemetry write — both the `Bash`-observation hook (ADR 005) and the stream-json event ingest (ADR 006) — not only to final container logs.
 
 ## `gh` and `git` Use Fine-Grained Tokens
 

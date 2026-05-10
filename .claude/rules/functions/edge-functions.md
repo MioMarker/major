@@ -107,13 +107,15 @@ If any step fails, the whole transaction rolls back. The Single Active Run Rule 
 
 `major-finalize-run` performs:
 
-1. `UPDATE major.runs SET outcome='<terminal>', finalized_at=now() WHERE id=$1 AND outcome='running'` — only the holding Shell can finalize.
+1. `UPDATE major.runs SET outcome='<terminal>', finalized_at=now(), num_turns=$, duration_ms=$, final_text=$, input_tokens=$, output_tokens=$, cache_read_tokens=$, cache_write_tokens=$ WHERE id=$1 AND outcome='running'` — only the holding Shell can finalize. Stream-json summary metrics (per `docs/adr/006-tachikoma-stream-json-telemetry.md`) hoist into the same UPDATE; they are not a separate write.
 2. `INSERT INTO major.brief_artifacts ...` — produced artifacts.
 3. `INSERT INTO major.verification_results ...` — verification outcomes.
 4. `UPDATE major.briefs SET status='<next>'` — transition.
 5. `INSERT INTO major.events (event_type='run-ended', ...)` with idempotency key.
 
 All atomic. If the Shell's lease has expired between heartbeat and finalize, step 1 affects 0 rows and the whole transaction fails — the Shell aborts, having already lost the claim to the Reaper.
+
+Per-event stream-json observations write to `major.telemetry_records` outside the Run Finalization Transaction (live during the Run); only the summary metrics are part of finalization.
 
 ### Change Set Apply
 

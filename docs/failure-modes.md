@@ -165,6 +165,8 @@ Vocabulary follows ADR 004 (Brief / Shell / Cyberbrain).
 
 **Manual escalation.** If backoff exhausts or the rate limit persists past `X-RateLimit-Reset`: the affected Brief is routed to `ready-for-human` with a Human Handoff Event citing rate-limit exhaustion. Rotate to a different fine-grained PAT or wait for the reset window. Persistent rate limiting across all Briefs implies fleet-wide PAT revocation or a GitHub status incident.
 
+The exponential backoff + retry-cap mechanism described here, combined with § 15's fleet-wide kill-switch for LLM quota, function as Major's de-facto Circuit Breaker pattern at one-Shell scale. A formal three-state breaker (Closed/Open/Half-Open) was considered and deferred during the 2026-05-09 architecture grill — revisit conditions: fleet > 1 Shell; a documented cascade incident; a third external service whose failure shape doesn't fit either existing mechanism.
+
 ---
 
 ## 14. Supabase service-role key compromised
@@ -217,3 +219,15 @@ Vocabulary follows ADR 004 (Brief / Shell / Cyberbrain).
 **Automated handling.** Hard-fail the Shell. The current Run is cancelled (System Run Cancellation, route to `ready-for-human` because the sandbox state is unsafe). A `[Shell] phase-race-detected` Telemetry Record is emitted with the `shell_id`, the Brief id, and stack traces from both phases if available. Container exits non-zero so the host's restart logic spawns a fresh Shell with a clean filesystem.
 
 **Manual escalation.** This is a "should-never-happen." If it ever does: open an issue immediately, attach the Telemetry Records, and audit the Shell orchestration code for the lifecycle bug. Treat as a high-severity defect — Brief state in the affected sandbox cannot be trusted; the affected Brief must be inspected by a human before any further Run.
+
+---
+
+## 18. Stream-json parse failure
+
+**What it looks like.** The Shell receives a stream-json line from Claude Code that does not parse as valid JSON, or matches the parser's grammar but is missing expected fields. Possible causes: Anthropic format change, transient corruption in the subprocess pipe, a malformed event from a prompt-injection attempt.
+
+**Detection.** The Shell's stream-json parser raises on parse failure. A counter (`tachikoma_parse_errors`) increments on the active Run.
+
+**Automated handling.** Per ADR 006, telemetry parse failure does NOT abort the Run. The Shell logs the failure to container stdout (`[Shell] tachikoma-parse-error`), increments the counter, and continues. The completion event still fires from Claude Code's normal exit path; the Run finalizes with whatever events parsed cleanly. The unparsed line is dropped.
+
+**Manual escalation.** If `tachikoma_parse_errors` is non-zero on > 5% of Runs in a week, investigate whether Anthropic changed the stream-json format. Update the parser; the SPEC's stream-json shape note is a snapshot — it moves with the parser.
