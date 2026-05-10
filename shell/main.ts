@@ -28,6 +28,7 @@ import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { runSandboxAgent, type TachikomaBriefSnapshot, type TachikomaRunSnapshot, type ParsedEvent } from "./tachikoma";
+import { parsePlannerOutput, shouldRunPlanner } from "./planner-helpers";
 
 // ────────────────────────────────────────────────────────────────────
 // Env + constants
@@ -242,6 +243,12 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
   const sandboxDir = await prepareSandbox(claim);
   activeRun.sandboxDir = sandboxDir;
 
+  // /work/.major/ is not (yet) cleaned between Briefs (F-15 — see
+  // docs/plans/001-e2e-reliability-fixes.md). Until that lands, defensively
+  // remove any stale plan.md so a Brief whose Planner gate doesn't match
+  // can't pick up a previous Brief's plan as its own.
+  await fs.rm(path.join("/work", ".major", "plan.md"), { force: true });
+
   const brief: TachikomaBriefSnapshot = {
     id: claim.brief.id,
     title: claim.brief.title,
@@ -291,6 +298,85 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
     }
   };
 
+  // Result accumulators. All phases push to these.
+  const verifications: VerificationPayload[] = [];
+  const artifacts: ArtifactPayload[] = [];
+
+  // 1.5. Phase 0 (gated): planner. Per ADR 013 / Phase 1 Decision 1, runs only
+  //      when the Brief benefits from explicit decomposition — multi-path or
+  //      epic/parent classification. Plan is Markdown at /work/.major/plan.md;
+  //      Implementer reads it as context. Verification is advisory per
+  //      Phase 1 Decision 3 — a failed planner subprocess does not park the
+  //      Brief; Implementer still runs.
+  if (shouldRunPlanner(brief)) {
+    log("info", "phase: planner starting", { runId: claim.run.id });
+    const planner = await runSandboxAgent({
+      role: "planner",
+      sandboxDir,
+      brief,
+      run: runMeta,
+      onStreamEvent,
+    });
+    log("info", "phase: planner ended", {
+      runId: claim.run.id,
+      ok: planner.ok,
+      exitCode: planner.exitCode,
+      durationMs: planner.durationMs,
+      parseErrors: planner.tachikomaParseErrors,
+    });
+    totalParseErrors += planner.tachikomaParseErrors;
+
+    const plannerOutput = parsePlannerOutput(planner.parsedOutput);
+    verifications.push({
+      check_name: "tachikoma-planner",
+      outcome: planner.ok ? "pass" : "fail",
+      required: false, // advisory per ADR 013 / Phase 1 Decision 3
+      requiredness_source: "artifact-type-policy",
+      payload: {
+        promptVersion: planner.promptVersion,
+        durationMs: planner.durationMs,
+        exitCode: planner.exitCode,
+        transcriptRef: planner.transcriptPath,
+        outputSnippet: planner.stdoutSnippet.slice(-1024),
+        scopeCheck: plannerOutput?.scope_check ?? null,
+        filesPlanned: plannerOutput?.files_planned ?? null,
+        additionalPathsNeeded: plannerOutput?.additional_paths_needed ?? null,
+      },
+    });
+
+    // A *successful* Planner reporting expansion-needed is authoritative —
+    // skip Implementer + Reviewer and route to ready-for-human so a human can
+    // re-Triage. (Distinct from the advisory "planner subprocess failed"
+    // case, which falls through to Implementer per Decision 3.)
+    if (planner.ok && plannerOutput?.scope_check === "expansion-needed") {
+      const earlyTelemetry: TelemetryPayload[] = await readTelemetryJsonl();
+      if (totalParseErrors > 0) {
+        earlyTelemetry.push({
+          observationType: "tachikoma-stream-parse-errors",
+          payload: { count: totalParseErrors, runId: claim.run.id },
+        });
+      }
+      await callFinalizeRun({
+        runId: claim.run.id,
+        briefId: claim.brief.id,
+        outcome: "failed",
+        cancellationReason: null,
+        nextBriefStatus: "ready-for-human",
+        verifications,
+        artifacts: [],
+        telemetry: earlyTelemetry,
+        summary: "planner reported expected-paths-insufficient",
+        tachikomaCompletion: planner.completionEvent?.body,
+      });
+      log("info", "run finalized", {
+        runId: claim.run.id,
+        outcome: "failed",
+        nextStatus: "ready-for-human",
+      });
+      return;
+    }
+  }
+
   // 2. Phase 1: implementer.
   log("info", "phase: implementer starting", { runId: claim.run.id });
   const implementer = await runSandboxAgent({
@@ -319,8 +405,6 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
     "utf8",
   );
 
-  const verifications: VerificationPayload[] = [];
-  const artifacts: ArtifactPayload[] = [];
   const telemetry: TelemetryPayload[] = await readTelemetryJsonl();
   if (totalParseErrors > 0) {
     telemetry.push({
