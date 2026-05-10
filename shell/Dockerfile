@@ -73,7 +73,7 @@ WORKDIR /opt/major-shell
 COPY package.json tsconfig.json ./
 RUN npm install --no-audit --no-fund
 
-COPY main.ts tachikoma.ts ./
+COPY main.ts tachikoma.ts stream-json-parser.ts ./
 COPY prompts/ ./prompts/
 COPY sandbox-pretooluse-bash.sh sandbox-claude-settings.json ./
 RUN chmod +x sandbox-pretooluse-bash.sh
