@@ -25,6 +25,7 @@ import {
   TRIAGE_PROMPT_VERSION,
   type TachikomaRole,
 } from "./prompts/versions";
+import { StreamJsonParser, type ParsedEvent, type StreamJsonLine } from "./stream-json-parser";
 
 // ────────────────────────────────────────────────────────────────────
 // Types
@@ -62,16 +63,22 @@ export interface RunSandboxAgentInput {
   maxTurns?: number;
   /** Optional: subprocess wall-clock cap (ms). Defaults below. */
   timeoutMs?: number;
+  /**
+   * Called for each successfully-parsed stream-json event (ParsedEvent only —
+   * parse errors are handled internally). May POST to the Major API; errors
+   * in this callback are logged but never abort the Run.
+   */
+  onStreamEvent?: (event: ParsedEvent) => Promise<void>;
 }
 
 export interface TachikomaResult {
   ok: boolean;
   exitCode: number;
-  /** Last ~4 KB of stdout for debugging (full stream goes to log artifact). */
+  /** Last ~4 KB of raw stdout (JSONL event lines) for debugging. */
   stdoutSnippet: string;
   /** Last ~4 KB of stderr for debugging. */
   stderrSnippet: string;
-  /** Parsed JSON from the final fenced block or last line, if present. */
+  /** Parsed JSON from the result event's 'result' field, or last stdout line. */
   parsedOutput: unknown;
   durationMs: number;
   promptVersion: string;
@@ -80,6 +87,10 @@ export interface TachikomaResult {
    * Runner attaches this as a log_artifact_ref when finalizing the Run.
    */
   transcriptPath: string;
+  /** Number of stream-json lines that failed to parse during this phase. */
+  tachikomaParseErrors: number;
+  /** The final 'result' stream-json event, if the subprocess emitted one. */
+  completionEvent?: ParsedEvent;
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -132,7 +143,7 @@ const SHELL_DIR = path.join(__dirname, "..");
  *   - Touch git. The role prompt may invoke git/gh from inside the subprocess.
  */
 export async function runSandboxAgent(input: RunSandboxAgentInput): Promise<TachikomaResult> {
-  const { role, sandboxDir, brief, run } = input;
+  const { role, sandboxDir, brief, run, onStreamEvent } = input;
   const promptVersion = PROMPT_VERSION_BY_ROLE[role];
   const maxTurns = input.maxTurns ?? DEFAULT_MAX_TURNS_BY_ROLE[role];
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS_BY_ROLE[role];
@@ -189,6 +200,8 @@ export async function runSandboxAgent(input: RunSandboxAgentInput): Promise<Tach
     [
       "--max-turns",
       String(maxTurns),
+      "--output-format",
+      "stream-json",
       "--print",
       fullPrompt,
     ],
@@ -218,15 +231,63 @@ export async function runSandboxAgent(input: RunSandboxAgentInput): Promise<Tach
     },
   );
 
-  // 4. Drain stdout/stderr to the transcript file AND keep a rolling tail
-  //    in memory for the snippet field.
+  // 4. Read stdout line-by-line. Each complete line is a stream-json event.
+  //    Raw bytes still go to the transcript. A rolling tail keeps the last
+  //    ~4 KB of raw JSONL for the stdoutSnippet field.
   const TAIL_BYTES = 4096;
   let stdoutTail = "";
   let stderrTail = "";
 
+  // Line assembly state.
+  let lineBuffer = "";
+  let tachikomaParseErrors = 0;
+  let completionEvent: ParsedEvent | undefined;
+  // Promises for fire-and-forget onStreamEvent calls; settled after child exits.
+  const eventPromises: Promise<void>[] = [];
+
+  const processCompleteLine = (rawLine: string): void => {
+    if (rawLine.trim().length === 0) return;
+    stdoutTail = (stdoutTail + rawLine + "\n").slice(-TAIL_BYTES);
+
+    const parsed: StreamJsonLine = StreamJsonParser(rawLine);
+
+    if (!parsed.ok) {
+      tachikomaParseErrors++;
+      // Log parse errors to container stdout in the Shell's structured format.
+      process.stdout.write(
+        JSON.stringify({
+          ts: new Date().toISOString(),
+          level: "warn",
+          shellId: run.shellId,
+          runId: run.id,
+          message: "[Shell] tachikoma-parse-error",
+          reason: parsed.reason,
+        }) + "\n",
+      );
+      return; // Parse errors are not forwarded to onStreamEvent.
+    }
+
+    if (parsed.eventKind === "result") {
+      completionEvent = parsed;
+    }
+
+    if (onStreamEvent) {
+      eventPromises.push(
+        onStreamEvent(parsed).catch(() => {
+          // Caller logs the failure. Never abort the Run here.
+        }),
+      );
+    }
+  };
+
   child.stdout.on("data", (chunk: Buffer) => {
     transcriptStream.write(chunk);
-    stdoutTail = (stdoutTail + chunk.toString("utf8")).slice(-TAIL_BYTES);
+    lineBuffer += chunk.toString("utf8");
+    const lines = lineBuffer.split("\n");
+    lineBuffer = lines.pop() ?? "";
+    for (const line of lines) {
+      processCompleteLine(line);
+    }
   });
   child.stderr.on("data", (chunk: Buffer) => {
     transcriptStream.write(Buffer.concat([Buffer.from("[stderr] "), chunk]));
@@ -254,13 +315,24 @@ export async function runSandboxAgent(input: RunSandboxAgentInput): Promise<Tach
   });
   await transcriptStream.close();
 
+  // Flush any partial line that arrived without a trailing newline.
+  if (lineBuffer.trim().length > 0) {
+    processCompleteLine(lineBuffer);
+  }
+
+  // Settle all in-flight onStreamEvent writes before returning.
+  await Promise.allSettled(eventPromises);
+
   const durationMs = Date.now() - startedAt;
 
-  // 7. Parse structured output. Conventions (documented in each role prompt):
-  //    - The last fenced ```json block in stdout, OR
-  //    - The last non-empty line as JSON.
-  //    Either way, must include a `phase` field matching the role.
-  const parsedOutput = parseStructuredOutput(stdoutTail);
+  // 7. Parse structured output. With --output-format stream-json the final
+  //    assistant message lives in the result event's 'result' string field.
+  //    Fall back to stdoutTail parsing if no completion event was captured.
+  const finalText =
+    completionEvent !== undefined && typeof completionEvent.body["result"] === "string"
+      ? completionEvent.body["result"]
+      : stdoutTail;
+  const parsedOutput = parseStructuredOutput(finalText);
 
   // 8. Compute ok-ness. Subprocess exit code is canonical; parsed.ok refines it.
   let ok = exitCode === 0;
@@ -283,6 +355,8 @@ export async function runSandboxAgent(input: RunSandboxAgentInput): Promise<Tach
     durationMs,
     promptVersion,
     transcriptPath,
+    tachikomaParseErrors,
+    completionEvent,
   };
 }
 
@@ -413,4 +487,4 @@ export {
   REPAIR_PROMPT_VERSION,
   PROMPT_VERSION_BY_ROLE,
 };
-export type { TachikomaRole };
+export type { TachikomaRole, ParsedEvent, StreamJsonLine };
