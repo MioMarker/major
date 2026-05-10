@@ -91,7 +91,7 @@ docker run --rm \
   -e SHELL_ID=shell-A \
   -e MAJOR_API_BASE_URL=https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1 \
   -e SUPABASE_SERVICE_ROLE_KEY=<service-role-key> \
-  -e GITHUB_TOKEN=<fine-grained-PAT-with-repo-write-on-healthbite-and-healix> \
+  -e GITHUB_TOKEN=<fine-grained-PAT — see token scope below> \
   -e CLAUDE_CODE_OAUTH_TOKEN=<from `claude setup-token` — Max subscription> \
   major-shell:latest
 # Alternative if no Max plan: replace CLAUDE_CODE_OAUTH_TOKEN with
@@ -101,6 +101,19 @@ docker run --rm \
 The Shell authenticates to Major's API via `Authorization: Bearer <SUPABASE_SERVICE_ROLE_KEY>` plus a `X-Major-Shell-Id` header. The auth helper (`supabase/functions/_shared/auth.ts`) recognizes the service-role bypass and attributes calls to `shell:<SHELL_ID>`. No user JWT is involved; Shells are not `auth.users` rows.
 
 The Shell registers itself in `major.shells` on boot, then enters the main loop.
+
+### 1.7.1 GitHub PAT scope
+
+The fine-grained PAT used for `GITHUB_TOKEN` (Shell) and the equivalent token used by `major-github-webhook` for outbound calls (`GITHUB_APP_TOKEN` — set via `supabase secrets set`) must grant the following on each dependent repo (`MioMarker/healthbite`, `MioMarker/healix`):
+
+| Permission | Used by | Why |
+|---|---|---|
+| `Contents: Write` | Shell | Push branches, create commits |
+| `Pull requests: Write` | Shell | Open / update PRs |
+| `Actions: Read` | Shell | Read CI status |
+| `Issues: Write` | `major-github-webhook` (ADR 007) | Close source GitHub issue + post linking comment when the PR-merge webhook fires for a Brief with `briefs.source_issue_*` populated |
+
+Tokens have an expiration; rotation is part of the operator's monthly checklist. After rotation, update the Shell `.env` AND `npx -y supabase secrets set GITHUB_APP_TOKEN=<new-token>` so the webhook handler also picks up the new value.
 
 ---
 

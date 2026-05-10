@@ -217,3 +217,40 @@ Vocabulary follows ADR 004 (Brief / Shell / Cyberbrain).
 **Automated handling.** Hard-fail the Shell. The current Run is cancelled (System Run Cancellation, route to `ready-for-human` because the sandbox state is unsafe). A `[Shell] phase-race-detected` Telemetry Record is emitted with the `shell_id`, the Brief id, and stack traces from both phases if available. Container exits non-zero so the host's restart logic spawns a fresh Shell with a clean filesystem.
 
 **Manual escalation.** This is a "should-never-happen." If it ever does: open an issue immediately, attach the Telemetry Records, and audit the Shell orchestration code for the lifecycle bug. Treat as a high-severity defect — Brief state in the affected sandbox cannot be trusted; the affected Brief must be inspected by a human before any further Run.
+
+---
+
+## 18. Source-issue close failed after PR merge (ADR 007)
+
+**What it looks like.** The PR-merge webhook fired and transitioned the Brief to `done` correctly, but the linked GitHub issue (recorded in `briefs.source_issue_repo` + `briefs.source_issue_number`) is still open. Symptom: the issue stays on the issue tracker after the resolving PR has merged.
+
+**Detection.** `[major-github-webhook]` log line with `issue-close-failed`, payload includes the source issue coordinates and the GitHub API error. The Brief itself is correctly transitioned; only the outbound side effect failed.
+
+**Automated handling.** None. Per ADR 007, the issue-close failure is logged but does not abort the Brief transition — the canonical state (Brief done) is correct; the issue close is a best-effort downstream effect. Eventual consistency.
+
+**Manual escalation.** Operator manually closes the issue with a comment linking to the merged PR and the Brief. If failures cluster (multiple issues stuck open), check:
+1. **Token scope.** Per `docs/runbook.md` § 1.7.1, the token used by `major-github-webhook` (env var `GITHUB_APP_TOKEN`) needs `Issues: Write` on each dependent repo. A PAT rotated without this scope produces this failure mode silently.
+2. **GitHub rate limit.** Same as failure mode § 13.
+3. **Repo access.** If the source issue is in a repo Major no longer has token access to (revoked install, deleted repo), the close call returns 404 — manual cleanup only.
+
+If the failure is recurring and operationally painful, the v2 fix is a polling reconciler that sweeps recently-merged Briefs and retries their pending issue-close calls. Out of scope for v1; this failure-mode entry is the manual fallback.
+
+---
+
+## 19. Tachikoma bash command denied by Phase 2 deny list (ADR 008)
+
+**What it looks like.** A Tachikoma `Bash` invocation is refused by Claude Code's `permissions.deny` enforcement (one of the 8 patterns in `shell/sandbox-claude-settings.json`). The Tachikoma sees the refusal in its tool-result; depending on the Run's progress, it may park-for-human, retry with a different command, or end the Run with an unrecoverable failure.
+
+**Detection.** Per ADR 005 § "Telemetry semantics" once the audit hook is enriched (separate follow-up work), denied commands appear in `major.telemetry_records` as `observation_type='tachikoma-bash-observed'` with `payload.decision='denied'` and `payload.matched_rule=<rule>`. Until the hook enrichment lands, denial is detectable only via Claude Code's tool-result transcript and the absence of a corresponding `decision='observed'` record for the attempted command.
+
+**Automated handling.** None — the deny is the handling. The Run continues; the Tachikoma may recover or may park.
+
+**Manual escalation.**
+1. **Confirm the deny was correct.** Read the denied command. If it was a genuine policy violation (force-push, `npm publish`, etc.), the system worked as intended — no action needed beyond watching for whether the Tachikoma adapts or parks.
+2. **If the deny was a false-positive** (a legitimate command the rule shouldn't have blocked), narrow the rule and redeploy:
+   - Edit `shell/sandbox-claude-settings.json` to express the carve-out (allow rules don't override deny in Claude Code's matcher; the fix is to narrow the deny pattern itself).
+   - Open a follow-up ADR if the carve-out reflects a policy change, not just a pattern fix.
+   - Rebuild + redeploy the Shell image.
+3. **If the deny pattern is structurally wrong** (e.g. matches commands the docs say it shouldn't), open an issue immediately and consider an emergency PR to remove the rule pending investigation.
+
+The deferred categories from ADR 008 (`pipe-to-shell`, `npm install <pkg>`, `sudo`) are NOT covered by the deny list — denial of those depends on container isolation (for the first two) and operator vigilance (for `sudo`). If a Tachikoma runs one of those and causes damage, that is a different failure mode (pre-Phase-2 surface area).
