@@ -1,0 +1,12 @@
+# Defense-in-depth: even though Dockerfile uses targeted COPYs and never
+# `COPY . .`, an env file accidentally placed in shell/ would still be a
+# liability if a future COPY ever broadens. Block all env-shaped files
+# from the build context.
+.env
+.env.*
+*.env
+
+# Reduce build context churn / size.
+node_modules/
+dist/
+*.log

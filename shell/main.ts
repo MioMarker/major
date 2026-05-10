@@ -198,7 +198,12 @@ async function mainLoop(): Promise<void> {
           briefId: claim.brief.id,
           outcome: "failed",
           cancellationReason: null,
-          nextBriefStatus: "ready-for-agent",
+          // Park the brief for human review on Shell-side exceptions.
+          // Returning to ready-for-agent immediately re-arms the brief and
+          // produces a tight reclaim loop on persistent setup failures
+          // (e.g. git checkout missing a base ref). A human should inspect
+          // before any retry; auto-retry with budget can ship later.
+          nextBriefStatus: "ready-for-human",
           verifications: [],
           artifacts: [],
           telemetry: [
@@ -327,10 +332,10 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
   // Verifications: copy implementer's reported checks, plus a meta-check for
   // the Tachikoma subprocess itself.
   verifications.push({
-    checkName: "tachikoma-implementer",
+    check_name: "tachikoma-implementer",
     outcome: implementer.ok ? "pass" : "fail",
     required: true,
-    requirednessSource: "artifact-type-policy",
+    requiredness_source: "artifact-type-policy",
     payload: {
       promptVersion: implementer.promptVersion,
       durationMs: implementer.durationMs,
@@ -342,10 +347,10 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
   if (implementerOutput?.verifications) {
     for (const v of implementerOutput.verifications) {
       verifications.push({
-        checkName: v.check,
+        check_name: v.check,
         outcome: v.outcome === "pass" ? "pass" : v.outcome === "fail" ? "fail" : "skipped",
         required: true,
-        requirednessSource: "artifact-type-policy",
+        requiredness_source: "artifact-type-policy",
         payload: { durationMs: v.duration_ms ?? null },
       });
     }
@@ -354,8 +359,8 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
   // 3. If implementer produced a PR, capture it as an artifact and poll CI.
   if (implementer.ok && implementerOutput?.pr_url && implementerOutput.pr_number) {
     artifacts.push({
-      artifactType: "git-change",
-      externalRef: implementerOutput.pr_url,
+      artifact_type: "git-change",
+      external_ref: implementerOutput.pr_url,
       payload: {
         prNumber: implementerOutput.pr_number,
         headSha: implementerOutput.head_sha ?? null,
@@ -370,10 +375,10 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
       gitRepositoryRef: claim.brief.gitRepositoryRef ?? "",
     });
     verifications.push({
-      checkName: "ci-rollup",
+      check_name: "ci-rollup",
       outcome: ciResult.outcome,
       required: ciResult.outcome !== "skipped", // advisory if no CI configured
-      requirednessSource: "artifact-type-policy",
+      requiredness_source: "artifact-type-policy",
       payload: {
         durationMs: ciResult.durationMs,
         outputSnippet: ciResult.summary,
@@ -412,10 +417,10 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
     if (reviewerOutput) reviewerStatus = reviewerOutput.status;
 
     verifications.push({
-      checkName: "tachikoma-reviewer",
+      check_name: "tachikoma-reviewer",
       outcome: reviewer.ok ? "pass" : "fail",
       required: false, // reviewer is advisory per SPEC §Authority
-      requirednessSource: "artifact-type-policy",
+      requiredness_source: "artifact-type-policy",
       payload: {
         promptVersion: reviewer.promptVersion,
         durationMs: reviewer.durationMs,
@@ -498,13 +503,22 @@ async function prepareSandbox(claim: ClaimResponse): Promise<string> {
 
   await runShellCmd("git", ["clone", "--depth", "50", cloneUrl, sandboxDir]);
 
+  // `git clone --depth N` implicitly enables `--single-branch`, locking the
+  // origin remote's fetch refspec to the default branch only. Subsequent
+  // `git fetch origin <baseBranch>` then only writes FETCH_HEAD and never
+  // populates `refs/remotes/origin/<baseBranch>` — so `checkout -b <feature>
+  // origin/<baseBranch>` fails when the brief's baseBranch differs from the
+  // repo default. Widening the refspec here makes that fetch behave as
+  // expected for any base branch.
+  await runShellCmd("git", ["-C", sandboxDir, "remote", "set-branches", "origin", "*"]);
+
   // Configure committer identity for any commits the Tachikoma makes.
   await runShellCmd("git", ["-C", sandboxDir, "config", "user.name", "Claude Code Tachikoma"]);
   await runShellCmd("git", ["-C", sandboxDir, "config", "user.email", "tachikoma@major.local"]);
 
   // Fetch the feature branch in case a previous Run pushed commits to it
   // (retry case — same branch reused per SPEC §Failure modes).
-  await runShellCmd("git", ["-C", sandboxDir, "fetch", "origin", baseBranch]);
+  await runShellCmd("git", ["-C", sandboxDir, "fetch", "--depth", "50", "origin", baseBranch]);
   const remoteHasFeature = await branchExistsOnRemote(sandboxDir, featureBranch);
   if (remoteHasFeature) {
     await runShellCmd("git", ["-C", sandboxDir, "fetch", "origin", featureBranch]);
@@ -652,10 +666,13 @@ interface ClaimResponse {
 }
 
 interface VerificationPayload {
-  checkName: string;
+  // snake_case mirrors the major-finalize-run wire contract; the SQL
+  // function passes p_verification_results straight to the verification_results
+  // INSERT, so any camelCase keys land as NULL and trip NOT NULL constraints.
+  check_name: string;
   outcome: "pass" | "fail" | "skipped";
   required: boolean;
-  requirednessSource:
+  requiredness_source:
     | "artifact-type-policy"
     | "ready-for-agent-content"
     | "human-override"
@@ -664,8 +681,9 @@ interface VerificationPayload {
 }
 
 interface ArtifactPayload {
-  artifactType: "git-change" | "triage-change-set";
-  externalRef: string | null;
+  // snake_case for the same reason as VerificationPayload above.
+  artifact_type: "git-change" | "triage-change-set";
+  external_ref: string | null;
   payload: Record<string, unknown>;
 }
 
