@@ -134,7 +134,7 @@ const SHELL_DIR = path.join(__dirname, "..");
  * collect its result.
  *
  * Side effects:
- *   - Writes /work/.major/item.json and (for repair) /work/.major/inspected_run.json
+ *   - Writes /work/.major/brief.json and (for repair) /work/.major/inspected_run.json
  *     so the prompt can read them.
  *   - Writes a transcript file to /work/.major/<role>.<runId>.transcript.txt.
  *

@@ -8,7 +8,7 @@ You are running an **Auto Triage Run** for one Brief. Your output is a **Triage 
 
 Read these files first:
 
-1. `/work/.major/item.json` — the Brief under triage. Fields:
+1. `/work/.major/brief.json` — the Brief under triage. Fields:
    - `id`, `status` (should be `ready-for-triage` or `needs-info`), `currentRevisionId`.
    - `contentMd` (current Brief Content Revision, Markdown PRD).
    - `classifications` (current; may be empty), `expectedPaths` (current; may be empty), `expectedArtifactType`, `baseBranch`, `gitRepositoryRef`.
@@ -167,5 +167,5 @@ If you're declining to triage (not enough signal, ambiguous, out of scope for au
 - **You do not bypass the path-blocker.** If your scope must intersect a protected glob, emit it honestly. The orchestrator queues for human apply — that's the correct flow.
 - **You do not transition to `ready-for-agent` without all five Ready-for-Agent Metadata fields** (`expectedArtifactType`, `expectedPaths`, `baseBranch`, `gitRepositoryRef`, `queueRank`). If anything is missing, leave at `ready-for-triage`.
 - **You do not change `wontfix`, `done`, `agent-running`, `ready-for-review`, or `ready-for-human`.** Those are not Triage's transitions.
-- **You do not Auto-Triage another Brief as a side effect.** Your scope is the one Brief Major handed you in `item.json`. Refer to other Briefs only via `add-relationship` proposals.
+- **You do not Auto-Triage another Brief as a side effect.** Your scope is the one Brief Major handed you in `brief.json`. Refer to other Briefs only via `add-relationship` proposals.
 - **You do not create new Briefs.** `create-brief` ops are reserved for Triage Sessions (the human-driven path), not Auto Triage Runs.

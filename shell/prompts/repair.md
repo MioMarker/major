@@ -16,7 +16,7 @@ You produce a recommendation; you do NOT mutate the store.
 
 Read these files first:
 
-1. `/work/.major/item.json` — the Brief snapshot. Fields:
+1. `/work/.major/brief.json` — the Brief snapshot. Fields:
    - `id`, current `status` (likely `agent-running` if a stale claim is still live, or `ready-for-agent` if the lease already expired and the Reaper kicked).
    - `gitRepositoryRef`, `gitBranch` (`major/brief-<id>`), `baseBranch`, `prUrl`, `prStatus`.
    - `currentRevisionId`.
