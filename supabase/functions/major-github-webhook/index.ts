@@ -9,6 +9,10 @@
 //   - pull_request    — opened/reopened/closed/edited; updates pr_status,
 //                       pr_url on the matching Brief via the PR body's
 //                       `Major-brief: <id>` Repository Correlation Receipt.
+//                       On `closed` actions (merged or unmerged), also
+//                       transitions the Brief to a terminal state and
+//                       (when applicable) closes the source GitHub issue
+//                       per ADR 007.
 //   - check_run       — completed; inserts verification_results for known
 //                       check names against the latest run on the Brief.
 //   - push            — informational only; emits an Event we can use to
@@ -127,6 +131,169 @@ async function handlePullRequest(
       ),
     })
     .select();
+
+  // ADR 007: on terminal PR actions, transition the Brief and (if applicable)
+  // close the source GitHub issue. The `pr-${action}` Event above remains the
+  // canonical record of the webhook itself; the Brief transition below is the
+  // lifecycle effect.
+  if (action === "closed") {
+    await maybeAutoCloseBrief(client, briefId, pr, delivery);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// pull_request.closed → Brief terminal transition (ADR 007)
+// ─────────────────────────────────────────────────────────────────
+async function maybeAutoCloseBrief(
+  client: ReturnType<typeof getAdminClient>,
+  briefId: number,
+  pr: any,
+  delivery: string,
+): Promise<void> {
+  const { data: brief, error: lookupErr } = await client
+    .from("briefs")
+    .select("id, status, source_issue_repo, source_issue_number")
+    .eq("id", briefId)
+    .maybeSingle();
+  if (lookupErr) {
+    console.error("[major-github-webhook] auto-close brief lookup:", lookupErr);
+    return;
+  }
+  if (!brief) return;
+
+  // Already-terminal Briefs are a no-op (e.g. webhook redelivery).
+  if (brief.status === "done" || brief.status === "wontfix") return;
+
+  const merged = !!pr.merged;
+  const targetStatus = merged ? "done" : "wontfix";
+
+  // Attribute the transition to the actual GitHub user who acted. The merge
+  // path uses pr.merged_by; the unmerged-close path falls back to pr.closed_by
+  // and then pr.user. CLAUDE.md amendment in PR #34 records this as the
+  // human-Actor exception to the agents-can't-set-done rule.
+  const actorLogin = merged
+    ? (pr.merged_by?.login ?? pr.user?.login ?? "unknown")
+    : (pr.closed_by?.login ?? pr.user?.login ?? "unknown");
+  const actor = `human:${actorLogin}`;
+
+  // Atomic transition: the .neq filters absorb the race where another delivery
+  // reached terminal first. Affects 0 rows on race; we treat that as success.
+  const { error: updErr } = await client
+    .from("briefs")
+    .update({ status: targetStatus })
+    .eq("id", briefId)
+    .neq("status", "done")
+    .neq("status", "wontfix");
+  if (updErr) {
+    console.error("[major-github-webhook] auto-close brief update:", updErr);
+    return;
+  }
+
+  // status-transitioned Event with idempotency key. Same delivery → same key
+  // → duplicate insert is a no-op via UNIQUE constraint.
+  await client
+    .from("events")
+    .insert({
+      brief_id: briefId,
+      type: "status-transitioned",
+      actor,
+      payload: {
+        kind: "status-transitioned",
+        from: brief.status,
+        to: targetStatus,
+        reason: `pull_request.closed (merged=${merged})`,
+        pr_number: pr.number,
+        pr_url: pr.html_url,
+        delivery,
+      },
+      idempotency_key: deriveIdempotencyKey(
+        briefId,
+        "status-transitioned",
+        actor,
+        delivery,
+      ),
+    })
+    .select();
+
+  // Source-issue close (only on merged → done; per ADR 007, closing a PR
+  // without merge does NOT imply rejecting the underlying request). Both
+  // columns are nullable; narrow before passing to the typed helper.
+  if (targetStatus === "done") {
+    const issueRepo = brief.source_issue_repo;
+    const issueNumber = brief.source_issue_number;
+    if (typeof issueRepo === "string" && typeof issueNumber === "number") {
+      await closeSourceIssue(issueRepo, issueNumber, pr, briefId);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Source-issue close via GitHub REST API (ADR 007)
+// ─────────────────────────────────────────────────────────────────
+async function closeSourceIssue(
+  repo: string,
+  issueNumber: number,
+  pr: any,
+  briefId: number,
+): Promise<void> {
+  const token = Deno.env.get("GITHUB_APP_TOKEN");
+  if (!token) {
+    console.error(
+      "[major-github-webhook] issue-close-failed: GITHUB_APP_TOKEN not configured",
+      { repo, issueNumber, briefId },
+    );
+    return;
+  }
+
+  const commonHeaders = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "Content-Type": "application/json",
+  };
+
+  // Comment first so the close has context. Both calls are best-effort —
+  // failure here does NOT abort the Brief transition (per ADR 007); the
+  // operator triages per docs/failure-modes.md § 18.
+  const commentRes = await fetch(
+    `https://api.github.com/repos/${repo}/issues/${issueNumber}/comments`,
+    {
+      method: "POST",
+      headers: commonHeaders,
+      body: JSON.stringify({
+        body:
+          `Closed by [${repo}#${pr.number}](${pr.html_url}) (Major Brief #${briefId}).`,
+      }),
+    },
+  );
+  if (!commentRes.ok) {
+    console.error("[major-github-webhook] issue-close-failed (comment):", {
+      repo,
+      issueNumber,
+      briefId,
+      status: commentRes.status,
+      body: await commentRes.text().catch(() => ""),
+    });
+    return;
+  }
+
+  const closeRes = await fetch(
+    `https://api.github.com/repos/${repo}/issues/${issueNumber}`,
+    {
+      method: "PATCH",
+      headers: commonHeaders,
+      body: JSON.stringify({ state: "closed", state_reason: "completed" }),
+    },
+  );
+  if (!closeRes.ok) {
+    console.error("[major-github-webhook] issue-close-failed (close):", {
+      repo,
+      issueNumber,
+      briefId,
+      status: closeRes.status,
+      body: await closeRes.text().catch(() => ""),
+    });
+  }
 }
 
 function parseBriefIdFromBody(body: string | null | undefined): number | null {
