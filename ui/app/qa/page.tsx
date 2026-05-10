@@ -9,11 +9,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { listQaBriefs } from "@/lib/api/briefs";
+import { getServerAuthToken } from "@/lib/auth-server";
 import { formatRelativeAge } from "@/lib/utils";
 import { ConfirmQaButton } from "./_confirm-qa-button";
 
 export default async function PendingQaPage() {
-  const briefs = await listQaBriefs();
+  const authToken = await getServerAuthToken();
+  const briefs = await listQaBriefs(authToken ?? undefined);
 
   return (
     <AppShell active="/qa">

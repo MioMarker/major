@@ -11,6 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { listBriefs } from "@/lib/api/briefs";
+import { getServerAuthToken } from "@/lib/auth-server";
 import { formatRelativeAge } from "@/lib/utils";
 import type {
   BriefClassification,
@@ -52,7 +53,8 @@ export default async function BriefsViewPage({ searchParams }: PageProps) {
     ? (searchParams.classification as BriefClassification)
     : undefined;
 
-  const briefs = await listBriefs({ status, classification });
+  const authToken = await getServerAuthToken();
+  const briefs = await listBriefs({ status, classification, authToken: authToken ?? undefined });
 
   return (
     <AppShell active="/">
