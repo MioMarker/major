@@ -72,6 +72,20 @@ curl --silent --max-time 5 --output /dev/null \
 
 if printf '%s' "$COMMAND" | grep -qE '^(npm|yarn|pnpm|bun) (install|add|i)( |$)'; then
   ARGS=$(printf '%s' "$COMMAND" | sed -E 's/^(npm|yarn|pnpm|bun) (install|add|i) ?//')
+  # Strip shell noise so the positional check sees only the install command's
+  # own args. Without this, `npm install --legacy-peer-deps 2>&1 | tail -20`
+  # gets denied because `2>&1` parses as a positional package name (the leading
+  # `2` matches the non-flag class). Order matters:
+  #   1. Drop fd-only redirects like `2>&1`, `>&2`, `1>&2`.
+  #   2. Drop file-target redirects like `> out.txt`, `2>> err.log`, `< in`.
+  #   3. Drop everything from the first chained-command separator onward
+  #      (`|`, `;`, `&`, `&&`, `||`) so a piped follow-up command can't be
+  #      mistaken for a package arg.
+  ARGS=$(printf '%s' "$ARGS" | sed -E '
+    s/[0-9]*[<>][<>]?&?[0-9]+//g;
+    s/[0-9]*[<>][<>]?[[:space:]]*[^[:space:]|&;]+//g;
+    s/[[:space:]]*[|;&].*$//;
+  ')
   # Match a non-flag positional: a token that is NOT empty, NOT starting with
   # '-', and NOT a chained-command separator. Flag tokens (--foo, -f) and
   # the empty arg (bare install) do not match.
