@@ -477,6 +477,8 @@ export type TelemetryRecord = {
   runId: number | null;
   observationType: TelemetryObservationType;
   payload: Record<string, unknown>;
+  // Added by migration 20260509000006 — null for records written before ADR 005.
+  idempotencyKey: string | null;
   createdAt: Date | string;
 };
 

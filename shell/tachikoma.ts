@@ -8,6 +8,10 @@
 // This module is intentionally thin: it owns prompt assembly + subprocess
 // I/O + structured-output parsing. It does NOT decide lifecycle outcomes —
 // main.ts does that based on the TachikomaResult.
+//
+// ADR 005: --dangerously-skip-permissions is dropped. The Shell instead drops
+// sandbox-claude-settings.json into the sandbox at clone time, which registers
+// a Bash PreToolUse hook that records each command to major-record-telemetry.
 
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
@@ -107,6 +111,9 @@ const DEFAULT_TIMEOUT_MS_BY_ROLE: Record<TachikomaRole, number> = {
 /** Where prompt sources live on disk inside the container. */
 const PROMPTS_DIR = path.join(__dirname, "prompts");
 
+/** Root of the compiled Shell package — one level above the dist/ directory. */
+const SHELL_DIR = path.join(__dirname, "..");
+
 // ────────────────────────────────────────────────────────────────────
 // Public entry point
 // ────────────────────────────────────────────────────────────────────
@@ -149,6 +156,9 @@ export async function runSandboxAgent(input: RunSandboxAgentInput): Promise<Tach
     "utf8",
   );
 
+  // 2a. Deploy Claude Code settings + Bash hook into the sandbox (ADR 005).
+  await deploySandboxSettings({ sandboxDir, majorDir });
+
   // 2. Assemble the prompt: system header (machine-trusted) + role body
   //    (versioned, on-disk).
   const promptBody = await fs.readFile(path.join(PROMPTS_DIR, `${role}.md`), "utf8");
@@ -158,11 +168,14 @@ export async function runSandboxAgent(input: RunSandboxAgentInput): Promise<Tach
   // 3. Spawn `claude` in --print mode. This is the canonical headless
   //    invocation: stream the prompt on stdin, capture stdout, exit when done.
   //
-  //    CLI shape (assumed; document in README):
-  //      claude --dangerously-skip-permissions --max-turns N --print "<prompt>"
+  //    CLI shape:
+  //      claude --max-turns N --print "<prompt>"
   //
   //    Notes:
-  //      - --dangerously-skip-permissions: container is the trust boundary.
+  //      - --dangerously-skip-permissions was removed per ADR 005. The sandbox
+  //        now runs with Claude Code's default permission model. A settings.json
+  //        deployed at clone time (step 2a above) registers the Bash PreToolUse
+  //        hook; Phase 2 will add an enforce-list once observation data accrues.
   //      - --max-turns: hard cap on tool-call iterations.
   //      - --print: non-interactive; outputs final assistant message to stdout.
   //
@@ -174,7 +187,6 @@ export async function runSandboxAgent(input: RunSandboxAgentInput): Promise<Tach
   const child = spawn(
     "claude",
     [
-      "--dangerously-skip-permissions",
       "--max-turns",
       String(maxTurns),
       "--print",
@@ -197,6 +209,10 @@ export async function runSandboxAgent(input: RunSandboxAgentInput): Promise<Tach
         GIT_AUTHOR_EMAIL: "tachikoma@major.local",
         GIT_COMMITTER_NAME: "Claude Code Tachikoma",
         GIT_COMMITTER_EMAIL: "tachikoma@major.local",
+        // Passed through for the Bash PreToolUse hook (sandbox-pretooluse-bash.sh).
+        // The hook uses these to POST observations to major-record-telemetry.
+        MAJOR_RUN_ID: String(run.id),
+        SHELL_ID: run.shellId,
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -345,6 +361,44 @@ function parseStructuredOutput(stdoutTail: string): unknown {
     }
   }
   return undefined;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Sandbox settings deployment (ADR 005)
+// ────────────────────────────────────────────────────────────────────
+
+/**
+ * Drop the Claude Code settings file and Bash PreToolUse hook script into the
+ * sandbox before spawning the Tachikoma. Both source files are checked into
+ * shell/ and copied into the container by the Dockerfile.
+ *
+ * Layout after this call:
+ *   <sandboxDir>/.claude/settings.json   — tells Claude Code about the hook
+ *   /work/.major/hooks/sandbox-pretooluse-bash.sh  — the hook script itself
+ */
+async function deploySandboxSettings(args: {
+  sandboxDir: string;
+  majorDir: string;
+}): Promise<void> {
+  // Settings file destination: <sandboxDir>/.claude/settings.json.
+  // Claude Code looks here when cwd is sandboxDir.
+  const claudeDir = path.join(args.sandboxDir, ".claude");
+  await fs.mkdir(claudeDir, { recursive: true });
+  await fs.copyFile(
+    path.join(SHELL_DIR, "sandbox-claude-settings.json"),
+    path.join(claudeDir, "settings.json"),
+  );
+
+  // Hook script destination: /work/.major/hooks/sandbox-pretooluse-bash.sh.
+  // This is the absolute path referenced inside sandbox-claude-settings.json.
+  const hooksDir = path.join(args.majorDir, "hooks");
+  await fs.mkdir(hooksDir, { recursive: true });
+  const hookDst = path.join(hooksDir, "sandbox-pretooluse-bash.sh");
+  await fs.copyFile(
+    path.join(SHELL_DIR, "sandbox-pretooluse-bash.sh"),
+    hookDst,
+  );
+  await fs.chmod(hookDst, 0o755);
 }
 
 // ────────────────────────────────────────────────────────────────────
