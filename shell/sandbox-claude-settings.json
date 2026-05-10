@@ -8,6 +8,16 @@
       "Grep(*)",
       "Bash(*)",
       "TodoWrite(*)"
+    ],
+    "deny": [
+      "Bash(rm -rf *.git*)",
+      "Bash(rm -rf */.git*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git config --global*)",
+      "Bash(npm publish*)",
+      "Bash(yarn publish*)",
+      "Bash(pnpm publish*)"
     ]
   },
   "hooks": {
