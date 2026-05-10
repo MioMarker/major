@@ -28,6 +28,7 @@ import { getBrief } from "@/lib/api/briefs";
 import { getServerAuthToken } from "@/lib/auth-server";
 import { formatDuration, formatRelativeAge, formatTokenCount } from "@/lib/utils";
 import { RejectBriefButton } from "./_reject-button";
+import { TelemetryRows } from "./_telemetry-rows";
 
 const BASH_OBSERVED = "tachikoma-bash-observed";
 
@@ -494,45 +495,14 @@ export default async function BriefDetailPage({ params }: PageProps) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Run</TableHead>
-                      <TableHead>Observation</TableHead>
-                      <TableHead>Payload</TableHead>
-                      <TableHead>When</TableHead>
+                      <TableHead className="w-28">Run</TableHead>
+                      <TableHead className="w-40">Type</TableHead>
+                      <TableHead>Summary</TableHead>
+                      <TableHead className="w-24">When</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {brief.telemetry_records.map((rec) => {
-                      const run = rec.run_id !== null ? runById.get(rec.run_id) : null;
-                      const payloadJson = JSON.stringify(rec.payload);
-                      return (
-                        <TableRow key={rec.id}>
-                          <TableCell className="font-mono text-xs">
-                            {rec.run_id !== null ? `#${rec.run_id}` : "—"}
-                            {run && (
-                              <span className="ml-1 text-muted-foreground">
-                                ({run.outcome})
-                              </span>
-                            )}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs">
-                            {rec.observation_type}
-                          </TableCell>
-                          <TableCell className="max-w-[480px] truncate font-mono text-xs text-muted-foreground">
-                            {payloadJson.length === 0 ? "—" : payloadJson}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {formatRelativeAge(rec.created_at)} ago
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                    {brief.telemetry_records.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
-                          No telemetry records yet.
-                        </TableCell>
-                      </TableRow>
-                    )}
+                    <TelemetryRows records={brief.telemetry_records} runById={runById} />
                   </TableBody>
                 </Table>
               </CardContent>
