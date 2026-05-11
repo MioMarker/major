@@ -33,6 +33,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
     useState<{ id: number; needs_human_apply: boolean } | null>(null);
   const [createdIssue, setCreatedIssue] =
     useState<{ url: string; number: number } | null>(null);
+  const [applyError, setApplyError] = useState<string | null>(null);
   const [isSending, startSend] = useTransition();
   const [isApplying, startApply] = useTransition();
 
@@ -55,24 +56,29 @@ export function TriageChat({ session }: { session: TriageSession }) {
   }
 
   function handleApply() {
+    setApplyError(null);
     startApply(async () => {
-      const token = await getSessionToken();
-      const cs = await finalizeTriageSession(session.id, token ?? undefined);
-      setPendingChangeSet({
-        id: cs.id,
-        needs_human_apply: cs.needs_human_apply,
-      });
+      try {
+        const token = await getSessionToken();
+        const cs = await finalizeTriageSession(session.id, token ?? undefined);
+        setPendingChangeSet({
+          id: cs.id,
+          needs_human_apply: cs.needs_human_apply,
+        });
 
-      if (selectedRepo) {
-        try {
-          const issue = await createGithubIssue(session.id, selectedRepo, token ?? undefined);
-          setCreatedIssue(issue);
-        } catch {
-          // Issue creation is best-effort; change set already applied.
+        if (selectedRepo) {
+          try {
+            const issue = await createGithubIssue(session.id, selectedRepo, token ?? undefined);
+            setCreatedIssue(issue);
+          } catch {
+            // Issue creation is best-effort; change set already applied.
+          }
         }
-      }
 
-      router.refresh();
+        router.refresh();
+      } catch (err) {
+        setApplyError(err instanceof Error ? err.message : "Failed to submit");
+      }
     });
   }
 
@@ -114,6 +120,11 @@ export function TriageChat({ session }: { session: TriageSession }) {
           {sendError && (
             <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               {sendError}
+            </div>
+          )}
+          {applyError && (
+            <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {applyError}
             </div>
           )}
           <Textarea
