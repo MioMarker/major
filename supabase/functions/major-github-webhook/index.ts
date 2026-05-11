@@ -522,6 +522,7 @@ export async function handleIssue(
     .from("triage_sessions")
     .insert({
       initiator_actor: "integration:github",
+      entry_point: "integration:github",
       status: "open",
       transcript: [],
       trigger_payload: triggerPayload,
