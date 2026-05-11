@@ -1,4 +1,4 @@
--- 20260511000003_triage_sessions_auto_triage_claim.sql
+-- 20260511000006_triage_sessions_auto_triage_claim.sql
 -- Adds Shell claim columns to major.triage_sessions for the auto-triage loop.
 -- Implements Brief 49: Shell auto-triage loop for GitHub-seeded sessions.
 --
@@ -8,6 +8,10 @@
 --
 -- The claim uses an atomic UPDATE … WHERE auto_triage_shell_id IS NULL so
 -- two Shells racing for the same session can't both succeed.
+--
+-- Renumbered from 20260511000003 to resolve a timestamp collision with
+-- 20260511000003_add_merge_blocked_status.sql and
+-- 20260511000003_settings_ai_provider.sql.
 
 set search_path = major, public;
 
