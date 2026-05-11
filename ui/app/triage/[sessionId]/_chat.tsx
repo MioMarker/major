@@ -1,5 +1,6 @@
 "use client";
 
+import { Send } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
@@ -116,50 +117,53 @@ export function TriageChat({ session }: { session: TriageSession }) {
               {sendError}
             </div>
           )}
-          <Textarea
-            placeholder="Describe work…"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && e.metaKey && !isSending && draft.trim()) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            rows={3}
-            disabled={isSending || isClosed}
-          />
-          <div className="flex items-center justify-between gap-2">
+          <div className="relative">
+            <Textarea
+              placeholder="Describe work…"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && e.metaKey && !isSending && draft.trim()) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              rows={3}
+              disabled={isSending || isClosed}
+              className="pb-9 pr-10"
+            />
             <Button
               variant="ghost"
-              size="sm"
+              size="icon"
+              className="absolute bottom-2 right-2 h-7 w-7"
+              aria-label="Send message"
               disabled={isSending || isClosed || !draft.trim()}
               onClick={handleSend}
             >
-              {isSending ? "Sending…" : "Send"}
+              <Send className="h-4 w-4" />
             </Button>
-            <div className="flex items-center gap-2">
-              <select
-                value={selectedRepo}
-                onChange={(e) => setSelectedRepo(e.target.value as Repo | "")}
-                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                disabled={isApplying}
-              >
-                <option value="">Don&apos;t create issue</option>
-                {REPOS.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-              <Button
-                size="sm"
-                disabled={isApplying || isClosed}
-                onClick={handleApply}
-              >
-                {isApplying ? "Submitting…" : "Submit →"}
-              </Button>
-            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <select
+              value={selectedRepo}
+              onChange={(e) => setSelectedRepo(e.target.value as Repo | "")}
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              disabled={isApplying}
+            >
+              <option value="">Don&apos;t create issue</option>
+              {REPOS.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+            <Button
+              size="sm"
+              disabled={isApplying || isClosed}
+              onClick={handleApply}
+            >
+              {isApplying ? "Submitting…" : "Submit →"}
+            </Button>
           </div>
           {pendingChangeSet && (
             <div className="rounded-md border bg-muted p-3 text-xs space-y-1">
