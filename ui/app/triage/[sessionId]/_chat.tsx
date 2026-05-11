@@ -121,7 +121,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && e.metaKey && !isSending && draft.trim()) {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !isSending && draft.trim()) {
                 e.preventDefault();
                 handleSend();
               }
@@ -130,14 +130,17 @@ export function TriageChat({ session }: { session: TriageSession }) {
             disabled={isSending || isClosed}
           />
           <div className="flex items-center justify-between gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={isSending || isClosed || !draft.trim()}
-              onClick={handleSend}
-            >
-              {isSending ? "Sending…" : "Send"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={isSending || isClosed || !draft.trim()}
+                onClick={handleSend}
+              >
+                {isSending ? "Sending…" : "Send"}
+              </Button>
+              <span className="text-xs text-muted-foreground">⌘/Ctrl+↩</span>
+            </div>
             <div className="flex items-center gap-2">
               <select
                 value={selectedRepo}
