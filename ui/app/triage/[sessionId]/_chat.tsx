@@ -5,6 +5,13 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   createGithubIssue,
@@ -139,19 +146,22 @@ export function TriageChat({ session }: { session: TriageSession }) {
               {isSending ? "Sending…" : "Send"}
             </Button>
             <div className="flex items-center gap-2">
-              <select
+              <Select
                 value={selectedRepo}
-                onChange={(e) => setSelectedRepo(e.target.value as Repo | "")}
-                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                onValueChange={(v) => setSelectedRepo(v as Repo | "")}
                 disabled={isApplying}
               >
-                <option value="">Don&apos;t create issue</option>
-                {REPOS.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-[220px] text-sm">
+                  <SelectValue placeholder="Create issue in… (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  {REPOS.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {r}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Button
                 size="sm"
                 disabled={isApplying || isClosed}
