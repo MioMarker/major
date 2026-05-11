@@ -220,7 +220,24 @@ WHERE type = 'run-started'
 
 Telemetry Records live in `major.telemetry_records` and are queried similarly. Events drive lifecycle; Telemetry is observation only.
 
-### 2.5 Inbound trigger smoke test
+### 2.5 Inbound issue trigger
+
+When a human (or automation) applies the `major:triage` label to a GitHub issue in a driven repo, the `major-github-webhook` function intercepts the `issues.labeled` event, creates a Triage Session against that issue's content, runs auto-triage, and produces a Draft Brief. If the Draft Brief is accepted, it is queued at `ready-for-agent`.
+
+**Operator guide.**
+
+1. Apply the `major:triage` label to the issue in GitHub. The label must match the configured name exactly (`major:triage`); any casing mismatch silently drops the event.
+2. Within a few seconds, expect: a comment posted on the issue confirming intake, and the label transitioning from `major:triage` to `major:triaged` (or `major:triage-failed` on error).
+3. A new Brief appears in the Briefs View at `draft` or `ready-for-agent` depending on the auto-triage outcome.
+
+**Nothing happened — troubleshooting.**
+
+- Check the webhook delivery log: GitHub repo → Settings → Webhooks → Recent Deliveries. Confirm an `issues` event with `action=labeled` was delivered and returned `2xx`.
+- Confirm the label name in the delivery payload matches `major:triage` exactly.
+- Check Supabase function logs for `[MajorGithubWebhook]` error lines around the delivery timestamp.
+- If the delivery failed (non-2xx), use "Redeliver" in GitHub's webhook UI to replay it without re-labelling.
+
+### 2.6 Inbound trigger smoke test
 
 Use this procedure to confirm that the end-to-end inbound pipeline — GitHub issue → `major:triage` label → Triage Session → auto-triage → Brief — is functioning. Run it after initial setup, after webhook re-registration, or any time you suspect the inbound path is broken.
 
@@ -356,13 +373,27 @@ Expected:
 
 If any check fails, emit a telemetry record in `major.telemetry_records` with `observation_type = 'external-system-error'` and the failed step, then file a GitHub issue titled `Security: inbound-trigger-check-<N>-failed` or the appropriate label so the post-incident review has a tracking record.
 
-### 2.6 Monthly operator checklist
+### 2.7 Monthly operator checklist
 
 Run on the first business day of each month:
 
 - Verify `major-shell-bot` PAT has not been revoked; rotate before expiration (per § 1.7.1).
 - Confirm Supabase service-role key and `GITHUB_WEBHOOK_SECRET` are still the values stored in 1Password.
 - Spot-check `major.telemetry_records` for unusual volumes of `github-rate-limited`, `eval-gate-signature-mismatch`, or `tachikoma-bash-observed (decision='denied')` records since the last check.
+
+### 2.8 Retry budget
+
+`briefs.max_attempts` caps the number of times a Brief is automatically re-queued after a failed Run. The default is `3`; Triage can override per-Brief via the `set-max-attempts` Change Operation.
+
+**How it works.** Each Run carries a `runs.attempt_number`. On Run Finalization, if the Run failed and `attempt_number < max_attempts`, the Brief is automatically re-armed to `ready-for-agent` for a Repair Run — a second-attempt implementer that also receives diagnostics from the prior attempt. If `attempt_number >= max_attempts`, the Brief is routed to `ready-for-human` instead; the Human Handoff Event payload includes `retry_budget_exhausted: true` so operators can filter for this case.
+
+**Re-arm as Repair (human override).** A human can bypass the cap from Brief Detail:
+
+1. Open Brief Detail. Confirm the failures were transient or that the underlying issue has been fixed (content updated, environment repaired, etc.).
+2. Click "Re-arm as Repair." This sets `status = 'ready-for-agent'` and schedules the next claim as `purpose = repair` — regardless of the current `attempt_number`. It does not reset the attempt counter; above-budget re-arms increment past `max_attempts`, governed only by the human decision to re-arm.
+3. Record the reason in the UI prompt (or Brief Comments) so the audit trail reflects why the budget was overridden.
+
+If the Brief continues to exhaust its budget after re-arms, edit the Content (new revision → Triage Change Set) to give the agent better guidance rather than re-arming indefinitely.
 
 ---
 
