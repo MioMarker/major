@@ -32,6 +32,7 @@ export type BriefStatus =
   | 'agent-running'
   | 'ready-for-review'
   | 'ready-for-human'
+  | 'merge-blocked'
   | 'done'
   | 'wontfix';
 

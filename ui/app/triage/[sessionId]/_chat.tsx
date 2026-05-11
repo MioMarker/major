@@ -1,9 +1,17 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -33,8 +41,14 @@ export function TriageChat({ session }: { session: TriageSession }) {
     useState<{ id: number; needs_human_apply: boolean } | null>(null);
   const [createdIssue, setCreatedIssue] =
     useState<{ url: string; number: number } | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [isSending, startSend] = useTransition();
   const [isApplying, startApply] = useTransition();
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const isClosed = session.status === "closed";
 
@@ -103,6 +117,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
                 No messages yet. Describe the work; the agent will grill.
               </div>
             )}
+            <div ref={bottomRef} />
           </div>
         </ScrollArea>
         <div className="flex flex-col gap-2">
@@ -121,7 +136,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && e.metaKey && !isSending && draft.trim()) {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !isSending && draft.trim()) {
                 e.preventDefault();
                 handleSend();
               }
@@ -129,15 +144,23 @@ export function TriageChat({ session }: { session: TriageSession }) {
             rows={3}
             disabled={isSending || isClosed}
           />
+          {!isClosed && (
+            <span className="self-end text-xs text-muted-foreground">
+              ⌘↩ to send
+            </span>
+          )}
           <div className="flex items-center justify-between gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={isSending || isClosed || !draft.trim()}
-              onClick={handleSend}
-            >
-              {isSending ? "Sending…" : "Send"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={isSending || isClosed || !draft.trim()}
+                onClick={handleSend}
+              >
+                {isSending ? "Sending…" : "Send"}
+              </Button>
+              <span className="text-xs text-muted-foreground">⌘/Ctrl+↩</span>
+            </div>
             <div className="flex items-center gap-2">
               <select
                 aria-label="Create GitHub issue in repository"
@@ -146,7 +169,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
                 className="rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 disabled={isApplying}
               >
-                <option value="">Don&apos;t create issue</option>
+                <option value="" disabled>Create issue in… (optional)</option>
                 {REPOS.map((r) => (
                   <option key={r} value={r}>
                     {r}
@@ -156,10 +179,34 @@ export function TriageChat({ session }: { session: TriageSession }) {
               <Button
                 size="sm"
                 disabled={isApplying || isClosed}
-                onClick={handleApply}
+                onClick={() => setShowConfirm(true)}
               >
-                {isApplying ? "Submitting…" : "Submit →"}
+                {isApplying ? "Finalizing…" : "Finalize session"}
               </Button>
+              <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Finalize this triage session?</DialogTitle>
+                    <DialogDescription>
+                      The conversation will close and a Change Set will be queued for review. This
+                      cannot be undone.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setShowConfirm(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setShowConfirm(false);
+                        handleApply();
+                      }}
+                    >
+                      Finalize session
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
           </div>
           {pendingChangeSet && (

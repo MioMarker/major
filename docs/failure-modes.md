@@ -263,3 +263,86 @@ from major.telemetry_records
 where payload->>'matched_rule' = 'ad-hoc-package-install'
 order by created_at desc;
 ```
+
+---
+
+## 20. Bot PAT leaked or revoked (ADR 015)
+
+**What it looks like.** The `major-shell-bot` fine-grained PAT is exposed, expired, or revoked. Symptoms: `gh` calls inside the Shell return `401 Unauthorized`; `git push` to a Brief branch fails with an auth error; no new PRs land for any active Brief; `major-github-webhook` outbound posts (issue close per ADR 007, comments per ADR 011) start failing with `401`. Telemetry Records on the Shell side show `event=github-auth-failed` (distinct from the rate-limit signal in failure mode § 13).
+
+**Detection.** Reported by a human, by GitHub's secret scanning, by a sudden cluster of `401`s on the Shell's API call paths, or — for revocation specifically — by the operator's monthly checklist (`docs/runbook.md` § 2.5).
+
+**Automated handling.** None — this is a credential incident, not a runtime failure mode. Briefs the Shell was working on will fail their next push or PR call; affected Runs surface as either `ready-for-human` (with a Human Handoff Event citing the auth failure) or as stuck in `agent-running` until the lease expires and § 1 reaps them.
+
+**Manual escalation.**
+
+1. **Revoke immediately.** Log in as `major-shell-bot` and revoke the existing PAT in GitHub → Settings → Developer settings → Fine-grained personal access tokens. If the bot account itself is compromised: rotate the bot account's password and re-enroll 2FA before issuing a new token.
+2. **Generate a fresh PAT.** Same scopes and repos as `docs/runbook.md` § 1.7.1: `Contents: Write`, `Pull requests: Write`, `Issues: Write`, `Actions: Read` on `MioMarker/major`, `MioMarker/healthbite`, `MioMarker/healix`. Max 1-year expiration. Store in 1Password.
+3. **Update secrets.** `shell/.env` `GITHUB_TOKEN` AND `npx -y supabase secrets set GITHUB_TOKEN=<new-pat>`.
+4. **Restart Shells.** Existing containers carry the old token in their env — `docker stop` and relaunch each Shell with the updated env.
+5. **Recover blocked Briefs.** Briefs left in `agent-running` past their lease are picked up by § 1's automated path. Briefs routed to `ready-for-human` due to the auth failure are re-submittable via `docs/runbook.md` § 2.3 once the new token is in place.
+6. **Audit `major.telemetry_records`** for actions attributed to `shell:*` during the exposure window. The bot's repo grants are scoped — Write on three repos with no admin — so blast radius is bounded, but verify nothing unexpected got pushed.
+7. **Open an issue post-incident** with: leak source (if known), exposure window, rotation timeline, audit findings.
+
+**Prevention.** Monthly checklist verification (`docs/runbook.md` § 2.5) catches revocations and near-expiration tokens. Bot PAT is never logged or echoed by the Shell wrapper per `.claude/rules/shell/sandbox-discipline.md`. The bot's narrow scope (Write on three repos, no admin, no CODEOWNER status) caps the damage of any single leak.
+
+---
+
+## 21. Brief stuck in `merge-blocked` (ADR 016)
+
+**What it looks like.** A Brief sits in `merge-blocked` status across multiple Mode 1 batches without transitioning to `done` or `wontfix`. The Briefs view shows the `merge blocked` badge persistently; the operator presses Mode 1, the batch runs, the Brief stays.
+
+**Detection.** Visual inspection of the Briefs view, or:
+
+```sql
+-- Briefs in merge-blocked whose last merge attempt is older than the last Mode 1 batch
+select id, pr_url, updated_at
+  from major.briefs
+ where status = 'merge-blocked'
+ order by updated_at asc;
+```
+
+**Automated handling.** Mode 1 re-includes `merge-blocked` Briefs in its queue (per ADR 016 § Mode 1 query). If the underlying GitHub-side cause has been resolved, the next Mode 1 press transitions the Brief back to `done` via the merge path. Stuck-ness implies the cause has not been resolved.
+
+**Manual escalation.**
+
+1. **Read the most recent `merge-attempt-failed` reason.** The `status-transitioned` event written on `ready-for-review → merge-blocked` carries `merge_attempt_failed_reason` in its payload:
+
+   ```sql
+   select payload
+     from major.events
+    where brief_id = '<id>'
+      and type = 'status-transitioned'
+      and payload->>'to' = 'merge-blocked'
+    order by created_at desc
+    limit 1;
+   ```
+
+   The closed set of reasons (ADR 016): `merge-conflict`, `ci-red`, `unresolved-review-threads`, `draft`, `approval-rejected`, `merge-rejected`, `unknown`.
+
+2. **Resolve per reason.**
+   - `merge-conflict` → rebase the Brief branch on `dev` (manually or via a Repair Run per failure mode § 8), push, then press Mode 1 again.
+   - `ci-red` → diagnose the failing check on the PR. If it's a real regression, open a follow-on Brief to fix it; if it's a CI flake, retrigger the workflow and re-press Mode 1.
+   - `unresolved-review-threads` → resolve threads on the PR in GitHub, then re-press Mode 1.
+   - `draft` → mark the PR ready-for-review on GitHub, then re-press Mode 1.
+   - `approval-rejected` / `merge-rejected` → read `github_response` in the event payload; address the specific GitHub objection (branch protection, required-status mismatch, etc.); re-press Mode 1.
+   - `unknown` → inspect the `github_response` payload manually and file an issue so the reason enumeration can be extended.
+
+3. **Press Mode 1 again.** The Brief is queue-eligible (per ADR 016) and will be re-attempted automatically. A successful merge transitions via ADR 007's webhook handler to `done`.
+
+4. **Abandoning Mode 1 for this Brief.** If the operator decides not to retry under Mode 1 (e.g. the merge needs a manual human-author PR for some reason), manually reset the status with an Event for the audit trail:
+
+   ```sql
+   begin;
+   update major.briefs set status = 'ready-for-review' where id = '<id>';
+   insert into major.events
+     (brief_id, type, actor, idempotency_key, payload)
+   values
+     ('<id>', 'status-transitioned', 'human:<your-user-id>',
+      'merge-blocked-reset-' || gen_random_uuid(),
+      jsonb_build_object('from', 'merge-blocked', 'to', 'ready-for-review',
+                         'reason', 'manual-reset-abandoning-mode-1'));
+   commit;
+   ```
+
+   If the Brief should be terminally abandoned: close the PR on GitHub instead — ADR 007's webhook handler transitions `merge-blocked → wontfix` automatically and records the closer as Actor.
