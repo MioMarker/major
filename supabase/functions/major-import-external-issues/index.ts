@@ -35,7 +35,10 @@ const ImportExternalIssuesRequest = z.object({
 
 const GITHUB_API = "https://api.github.com";
 
-const GithubIssueResponse = z.object({ title: z.string() });
+const GithubIssueResponse = z.object({
+  title: z.string(),
+  body: z.string().nullable(),
+});
 
 Deno.serve(async (req) => {
   const preflight = handleOptions(req);
@@ -109,6 +112,7 @@ Deno.serve(async (req) => {
             source_issue_repo: issue.repo,
             source_issue_number: issue.number,
             source_issue_title: ghIssue.title,
+            source_issue_body_md: ghIssue.body ?? "",
           },
         });
 

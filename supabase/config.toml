@@ -98,3 +98,9 @@ verify_jwt = false
 
 [functions.major-update-settings]
 verify_jwt = false
+
+# major-merge-pr is human-only (Mode 1 UI). No Shell caller, so the
+# gateway JWT pre-check is appropriate; user JWTs are also validated
+# inside the function via _shared/auth.ts as defense-in-depth.
+[functions.major-merge-pr]
+verify_jwt = true

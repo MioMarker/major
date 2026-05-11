@@ -4,11 +4,7 @@
 //   body (all optional):
 //     {
 //       entry_point?: string,           // e.g. "integration:github"
-//       trigger_payload?: {              // ADR 010 inbound seed
-//         source_issue_repo: string,    // 'MioMarker/healthbite'
-//         source_issue_number: integer,
-//         ...                            // additional source_issue_* fields
-//       }
+//       trigger_payload?: Record<string, unknown>  // ADR 010 inbound seed; JSONB, no shape constraint
 //     }
 //   200:  { id: number, status: 'open', created_at: string }
 //
@@ -28,21 +24,10 @@ import { handleOptions } from "../_shared/cors.ts";
 import { authenticate } from "../_shared/auth.ts";
 import { errorResponse, jsonResponse } from "../_shared/response.ts";
 
-const TriggerPayloadSchema = z.object({
-  source_issue_repo: z.string().min(1),
-  source_issue_number: z.number().int().positive(),
-  source_issue_url: z.string().optional(),
-  source_issue_author_login: z.string().nullable().optional(),
-  source_issue_title: z.string().nullable().optional(),
-  source_issue_body_md: z.string().nullable().optional(),
-  source_issue_created_at: z.string().nullable().optional(),
-  github_delivery: z.string().optional(),
-}).passthrough();
-
 const CreateBodySchema = z.object({
   entry_point: z.string().optional(),
-  trigger_payload: TriggerPayloadSchema.optional(),
-}).passthrough();
+  trigger_payload: z.record(z.string(), z.unknown()).optional(),
+});
 
 Deno.serve(async (req) => {
   const preflight = handleOptions(req);
@@ -77,7 +62,10 @@ Deno.serve(async (req) => {
       status: "open",
       transcript: [],
     };
-    if (parsed.data.trigger_payload) {
+    if (parsed.data.entry_point !== undefined) {
+      insertRow.entry_point = parsed.data.entry_point;
+    }
+    if (parsed.data.trigger_payload !== undefined) {
       insertRow.trigger_payload = parsed.data.trigger_payload;
     }
 
