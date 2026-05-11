@@ -52,6 +52,11 @@ export function TriageChat({ session }: { session: TriageSession }) {
   }, [messages]);
 
   const isClosed = session.status === "closed";
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   function handleSend() {
     const content = draft.trim();
