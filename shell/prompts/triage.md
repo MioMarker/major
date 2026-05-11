@@ -8,7 +8,7 @@ You are running an **Auto Triage Run** for one Brief. Your output is a **Triage 
 
 Read these files first:
 
-1. `/work/.major/brief.json` — the Brief under triage. Fields:
+1. `/work/.major/brief.json` — the Brief under triage, OR a session snapshot (see "Session-creation mode" below). Fields for a normal Brief triage:
    - `id`, `status` (should be `ready-for-triage` or `needs-info`), `currentRevisionId`.
    - `contentMd` (current Brief Content Revision, Markdown PRD).
    - `classifications` (current; may be empty), `expectedPaths` (current; may be empty), `expectedArtifactType`, `baseBranch`, `gitRepositoryRef`.
@@ -20,6 +20,63 @@ Read these files first:
 2. `/work/.major/queue.json` — current state of `ready-for-triage`, `ready-for-agent`, and `agent-running` Briefs, sorted by `queue_rank`. Use this to decide rank placement; don't pick a rank that conflicts.
 
 3. `/work/.major/path_blocker_config.json` — current protected globs + mass-rerank threshold. **Read-only** for awareness; the orchestrator re-runs the path-blocker against your output. You don't need to enforce it, but knowing it helps you avoid emitting proposals that will obviously be queued for human apply.
+
+## Session-creation mode
+
+When `brief.json` contains a YAML frontmatter block at the top of `contentMd` with `triage_mode: session`, you are operating in **session-creation mode**:
+
+- `id` is the Triage Session id, not a Brief id.
+- `contentMd` is the raw GitHub issue body, prepended with a YAML frontmatter block:
+  ```
+  ---
+  triage_mode: session
+  source_issue_number: <N>
+  source_session_id: <session_id>
+  ---
+  <issue body>
+  ```
+- `title` is the GitHub issue title.
+- `gitRepositoryRef` is the source issue's repo (e.g. `MioMarker/healthbite`).
+
+In session-creation mode your job is **Brief synthesis**: read the issue body and produce `create-brief` + `set-ready-state` ops (see op example below), rather than the refinement ops used in normal triage.
+
+Strip the frontmatter block before using the issue body as `content_md` in the `create-brief` op.
+
+If the issue body is too thin for Ready-for-Agent Content (no Acceptance Criteria, no Scope Boundaries, ambiguous goal), emit a `create-brief` op followed by a `transition-brief → needs-info` op (using `brief_id: "__auto__"`) with the Missing Information Request appended to `content_md`. Do not transition to `ready-for-agent` if the content is incomplete.
+
+Session-creation mode op example:
+
+```json
+{
+  "phase": "triage",
+  "ok": true,
+  "summary": "Created Brief for issue: <issue title>",
+  "operations": [
+    {
+      "type": "create-brief",
+      "source_session_id": 42,
+      "source_issue_repo": "MioMarker/healthbite",
+      "source_issue_number": 7,
+      "content_md": "<full PRD synthesized from issue body>",
+      "classifications": ["feature"],
+      "expected_paths": ["src/components/Foo.tsx"],
+      "git_repository_ref": "MioMarker/healthbite",
+      "base_branch": "dev",
+      "queue_rank": 1500,
+      "placement_reason": "auto-triaged from GitHub issue",
+      "sequence_index": 0
+    },
+    {
+      "type": "set-ready-state",
+      "brief_id": "__auto__",
+      "ready": true,
+      "sequence_index": 1
+    }
+  ]
+}
+```
+
+`brief_id: "__auto__"` is resolved by `apply_change_set` to the Brief created by the preceding `create-brief` op in the same Change Set.
 
 ## Process
 
@@ -168,4 +225,4 @@ If you're declining to triage (not enough signal, ambiguous, out of scope for au
 - **You do not transition to `ready-for-agent` without all five Ready-for-Agent Metadata fields** (`expectedArtifactType`, `expectedPaths`, `baseBranch`, `gitRepositoryRef`, `queueRank`). If anything is missing, leave at `ready-for-triage`.
 - **You do not change `wontfix`, `done`, `agent-running`, `ready-for-review`, or `ready-for-human`.** Those are not Triage's transitions.
 - **You do not Auto-Triage another Brief as a side effect.** Your scope is the one Brief Major handed you in `brief.json`. Refer to other Briefs only via `add-relationship` proposals.
-- **You do not create new Briefs.** `create-brief` ops are reserved for Triage Sessions (the human-driven path), not Auto Triage Runs.
+- **You do not create new Briefs in normal triage mode.** `create-brief` ops are only valid in session-creation mode (when `contentMd` has `triage_mode: session` frontmatter). In normal Auto Triage Runs (existing Briefs), `create-brief` is forbidden.
