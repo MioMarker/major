@@ -13,7 +13,10 @@ export function BriefRow({ briefId, children }: Props) {
   return (
     <TableRow
       className="group cursor-pointer hover:bg-muted/50"
-      onClick={() => router.push(`/briefs/${briefId}`)}
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest("button, a, input, select, textarea")) return;
+        router.push(`/briefs/${briefId}`);
+      }}
     >
       {children}
     </TableRow>
