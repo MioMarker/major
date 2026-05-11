@@ -145,7 +145,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
                 className="rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 disabled={isApplying}
               >
-                <option value="">Don&apos;t create issue</option>
+                <option value="" disabled>Create issue in&hellip; (optional)</option>
                 {REPOS.map((r) => (
                   <option key={r} value={r}>
                     {r}
