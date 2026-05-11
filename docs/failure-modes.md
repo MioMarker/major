@@ -220,20 +220,22 @@ Vocabulary follows ADR 004 (Brief / Shell / Cyberbrain).
 
 ---
 
-## 18. Source-issue close failed after PR merge (ADR 007)
+## 18. Source-issue outbound actions failed (ADR 007, ADR 011)
 
-**What it looks like.** The PR-merge webhook fired and transitioned the Brief to `done` correctly, but the linked GitHub issue (recorded in `briefs.source_issue_repo` + `briefs.source_issue_number`) is still open. Symptom: the issue stays on the issue tracker after the resolving PR has merged.
+**What it looks like.** A Brief reached a terminal state (`done` or `wontfix`) and the outbound GitHub actions — closing the source issue and/or posting a resolution comment — did not complete successfully. The Brief itself is correctly transitioned; only the best-effort downstream effects failed.
 
-**Detection.** `[major-github-webhook]` log line with `issue-close-failed`, payload includes the source issue coordinates and the GitHub API error. The Brief itself is correctly transitioned; only the outbound side effect failed.
+**Detection.** `[major-github-webhook]`, `[major-confirm-qa]`, or `[major-reject-brief]` log line with `issue-close-failed` or `resolution-comment-failed`, with payload including the source issue coordinates and the GitHub API error.
 
-**Automated handling.** None. Per ADR 007, the issue-close failure is logged but does not abort the Brief transition — the canonical state (Brief done) is correct; the issue close is a best-effort downstream effect. Eventual consistency.
+**Automated handling.** None. Per ADR 007 and ADR 011, outbound failures are logged but do not abort the Brief transition — the canonical state (Brief terminal) is correct; the issue close and resolution comment are best-effort downstream effects. Eventual consistency.
 
-**Manual escalation.** Operator manually closes the issue with a comment linking to the merged PR and the Brief. If failures cluster (multiple issues stuck open), check:
+**Manual escalation.** Operator manually closes the issue and/or posts a comment linking to the merged PR (for `done`) or explaining the rejection (for `wontfix`) and the Brief. If failures cluster (multiple issues stuck open), check:
 1. **Token scope.** Per `docs/runbook.md` § 1.7.1, the token used by `major-github-webhook` (env var `GITHUB_APP_TOKEN`) needs `Issues: Write` on each dependent repo. A PAT rotated without this scope produces this failure mode silently.
 2. **GitHub rate limit.** Same as failure mode § 13.
 3. **Repo access.** If the source issue is in a repo Major no longer has token access to (revoked install, deleted repo), the close call returns 404 — manual cleanup only.
 
-If the failure is recurring and operationally painful, the v2 fix is a polling reconciler that sweeps recently-merged Briefs and retries their pending issue-close calls. Out of scope for v1; this failure-mode entry is the manual fallback.
+If the failure is recurring and operationally painful, the v2 fix is a polling reconciler that sweeps recently-terminated Briefs and retries their pending outbound calls. Out of scope for v1; this failure-mode entry is the manual fallback.
+
+**Sub-case: wontfix-close (ADR 011).** When a Brief transitions to `wontfix` AND has `source_issue_*` populated, the source issue is closed with `state_reason: "not_planned"` and a resolution comment is posted explaining the rejection. This is the symmetric counterpart to the `done` path: the issue close and comment post are both best-effort. If they fail, the issue remains open and the comment may or may not appear; detection and manual escalation follow the same pattern as the main `done` case above.
 
 ---
 
@@ -263,3 +265,31 @@ from major.telemetry_records
 where payload->>'matched_rule' = 'ad-hoc-package-install'
 order by created_at desc;
 ```
+
+---
+
+## 20. Resolution comment failed / close succeeded (and inverse)
+
+Introduced by ADR 011's `_shared/github-issue.ts` helper, which makes two independent GitHub API calls on every terminal Brief transition that has `source_issue_*` populated: one to POST the resolution comment and one to PATCH the issue closed. Because these calls are independent, one can succeed while the other fails.
+
+**Sub-case A: Comment post failed, issue close succeeded.**
+
+**What it looks like.** The source issue is closed on GitHub (with the correct `state_reason`) but no resolution comment appears on the issue thread.
+
+**Detection.** Telemetry Record with `observation_type='resolution-comment-failed'` alongside a successful issue-close log line from `[major-github-webhook]`, `[major-confirm-qa]`, or `[major-reject-brief]`. The Brief itself is in its terminal state; only the comment is absent.
+
+**Automated handling.** None. The Brief transition is already complete; the close is the authoritative effect. The comment is best-effort.
+
+**Manual escalation.** Operator manually posts a comment on the (now-closed) issue with the Brief link and outcome summary. Check token scope and rate limits first (see § 13 and § 18).
+
+---
+
+**Sub-case B: Issue close failed, comment post succeeded.**
+
+**What it looks like.** A resolution comment is visible on the issue thread ("Resolved by Major Brief #N — done/wontfix") but the issue is still open on GitHub. This is the inverse of § 18's original detection scenario.
+
+**Detection.** `issue-close-failed` Telemetry Record after a successful comment-post log. The comment marker is present on the issue thread; the `state` field returned by GitHub's issue API is still `"open"`.
+
+**Automated handling.** None. Same best-effort posture as § 18 — the Brief is in its terminal state; the issue close is a downstream side effect.
+
+**Manual escalation.** Same as § 18 — operator manually closes the issue. Check `Issues: Write` token scope (§ 1.7.1 of the runbook) and GitHub rate limit (§ 13) before closing.

@@ -78,7 +78,7 @@ For each repo Major drives — `MioMarker/healthbite`, `MioMarker/healix`, **and
 2. Payload URL: `https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1/major-github-webhook`
 3. Content type: `application/json`.
 4. Secret: same value as `GITHUB_WEBHOOK_SECRET` from step 1.3.
-5. Events: `Pull requests`, `Check runs`, `Pushes`. (The handler ignores other events; subscribing to fewer events is the safer default.)
+5. Events: `Issues`, `Pull requests`, `Check runs`, `Pushes`. (The handler ignores other events; subscribing to fewer events is the safer default. `Issues` is required for the inbound `major:triage` label trigger per ADR 010.)
 6. Active: yes.
 
 `MioMarker/major` is on the list because Major drives PRs against itself for self-improving Briefs (doc edits, ADR follow-ups, internal tooling). Without the webhook registered there, the ADR 007 auto-close handler never sees the merge and the Brief stays stuck at `ready-for-review`. (This was caught during the first end-to-end dogfood of the auto-close webhook — see Brief 12 / PR #39, 2026-05-10.)
@@ -217,6 +217,57 @@ WHERE type = 'run-started'
 ```
 
 Telemetry Records live in `major.telemetry_records` and are queried similarly. Events drive lifecycle; Telemetry is observation only.
+
+### 2.5 Inbound issue trigger (`major:triage` label)
+
+Major can automatically seed a Triage Session from a GitHub issue. The trigger is opt-in: adding the `major:triage` label to an issue on any watched repo (`MioMarker/major`, `MioMarker/healthbite`, `MioMarker/healix`) fires an Auto Triage Run. Both `issues.opened` (if the label is pre-set on the issue at creation) and `issues.labeled` (label added after opening) trigger the flow.
+
+**Default OFF.** Only labeled issues are triaged; unlabeled issues are ignored.
+
+**What happens.**
+1. The webhook handler (`major-github-webhook`) receives the `issues` event and validates it (repo allowlist, `sender.type === "User"` — bots are filtered out, per ADR 010).
+2. Handler POSTs to `major-create-triage-session` with the issue body as the seed and `source_issue_*` coordinates populated on the eventual Brief.
+3. The Triage Tachikoma runs an Auto Triage Run (`purpose=triage`), reads the issue body as Content under the Trust Boundary, and produces a Change Set.
+4. The path-blocker (ADR 002) decides whether the Change Set auto-applies or queues for human apply — same as any Triage Session.
+
+**Idempotency.** Relabeling an already-triaged issue creates a new Session only if the prior Session is finalized. An in-flight Session is not re-triggered.
+
+**Monitoring.** Resulting Triage Sessions appear in the UI triage list. Navigate to the Session's detail page to see the source issue link.
+
+**Cancelling an unwanted Session.** Removing the `major:triage` label does NOT cancel an in-flight Session — the Session is durable once seeded. If the resulting Brief is unwanted, reject it via `major-reject-brief` (Brief Detail → Reject).
+
+**Prerequisites.** The `Issues` event must be checked on the GitHub webhook for each watched repo (§ 1.6). Without it, the webhook handler never receives the `issues` event.
+
+### 2.6 Retry budget and Re-arm-as-Repair
+
+Each Brief carries a `max_attempts` counter (default `3`) that caps automatic retries. When a Run finalizes as failed and the Brief reaches `ready-for-human`, the orchestrator checks:
+
+- If `attempt_number < max_attempts`: the Brief is automatically re-armed to `ready-for-agent` as a **Repair Run** (`runs.purpose='repair'`). The Repair Tachikoma receives the failed Run's Verification Results and a transcript excerpt so it can attempt a different approach.
+- If `attempt_number = max_attempts` (budget exhausted): the Brief parks at `ready-for-human` for human intervention. A `retry-budget-exhausted` Telemetry Record is emitted (ADR 014). Query via:
+
+```sql
+SELECT *
+FROM major.telemetry_records
+WHERE observation_type = 'retry-budget-exhausted'
+ORDER BY created_at DESC;
+```
+
+**Counter reset.** `attempt_number` resets to 1 when Triage creates a new Content Revision. A meaningfully revised Brief gets fresh attempts.
+
+**Above budget.** Brief parks at `ready-for-human`. See § 2.3 for the manual re-run path.
+
+**Human override.** The Brief Detail UI "Re-arm as Repair" button bypasses the budget — it always fires a Repair Run regardless of `attempt_number`. Use this when the failure was environmental (transient sandbox error, network flake) and you don't want to wait for a content revision.
+
+To inspect retry state for a specific Brief:
+
+```sql
+SELECT b.id, b.max_attempts, r.attempt_number, r.outcome
+FROM major.briefs b
+JOIN major.runs r ON r.brief_id = b.id
+WHERE b.id = '<id>'
+ORDER BY r.started_at DESC
+LIMIT 1;
+```
 
 ---
 
