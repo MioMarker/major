@@ -157,6 +157,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
             </div>
             <div className="flex items-center gap-2">
               <select
+                aria-label="Create GitHub issue in repository"
                 value={selectedRepo}
                 onChange={(e) => setSelectedRepo(e.target.value as Repo | "")}
                 className="rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
