@@ -33,6 +33,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
     useState<{ id: number; needs_human_apply: boolean } | null>(null);
   const [createdIssue, setCreatedIssue] =
     useState<{ url: string; number: number } | null>(null);
+  const [issueCreateFailed, setIssueCreateFailed] = useState(false);
   const [isSending, startSend] = useTransition();
   const [isApplying, startApply] = useTransition();
 
@@ -68,7 +69,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
           const issue = await createGithubIssue(session.id, selectedRepo, token ?? undefined);
           setCreatedIssue(issue);
         } catch {
-          // Issue creation is best-effort; change set already applied.
+          setIssueCreateFailed(true);
         }
       }
 
@@ -180,6 +181,11 @@ export function TriageChat({ session }: { session: TriageSession }) {
                   >
                     #{createdIssue.number}
                   </a>
+                </div>
+              )}
+              {issueCreateFailed && (
+                <div className="text-amber-600 dark:text-amber-400">
+                  Change Set created, but the GitHub issue could not be filed. You can retry from the source issue.
                 </div>
               )}
             </div>
