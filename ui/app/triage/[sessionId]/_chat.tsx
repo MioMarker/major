@@ -1,5 +1,6 @@
 "use client";
 
+import { Send } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
@@ -151,88 +152,88 @@ export function TriageChat({ session }: { session: TriageSession }) {
               {applyError}
             </div>
           )}
-          <Textarea
-            placeholder="Describe work…"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !isSending && draft.trim()) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            rows={3}
-            disabled={isSending || isClosed}
-          />
+          <div className="relative">
+            <Textarea
+              placeholder="Describe work…"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !isSending && draft.trim()) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              rows={3}
+              disabled={isSending || isClosed}
+              className="pb-9 pr-10"
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute bottom-2 right-2 h-7 w-7"
+              aria-label="Send message"
+              disabled={isSending || isClosed || !draft.trim()}
+              onClick={handleSend}
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
           {!isClosed && (
             <span className="self-end text-xs text-muted-foreground">
-              ⌘↩ to send
+              ⌘/Ctrl+↩ to send
             </span>
           )}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={isSending || isClosed || !draft.trim()}
-                onClick={handleSend}
+          <div className="flex items-center justify-end gap-2">
+            <Select
+              value={selectedRepo}
+              onValueChange={(v) => setSelectedRepo(v as Repo | "")}
+              disabled={isApplying}
+            >
+              <SelectTrigger
+                aria-label="Create GitHub issue in repository"
+                className="w-[220px] text-sm"
               >
-                {isSending ? "Sending…" : "Send"}
-              </Button>
-              <span className="text-xs text-muted-foreground">⌘/Ctrl+↩</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Select
-                value={selectedRepo}
-                onValueChange={(v) => setSelectedRepo(v as Repo | "")}
-                disabled={isApplying}
-              >
-                <SelectTrigger
-                  aria-label="Create GitHub issue in repository"
-                  className="w-[220px] text-sm"
-                >
-                  <SelectValue placeholder="Create issue in… (optional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  {REPOS.map((r) => (
-                    <SelectItem key={r} value={r}>
-                      {r}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                size="sm"
-                disabled={isApplying || isClosed}
-                onClick={() => setShowConfirm(true)}
-              >
-                {isApplying ? "Finalizing…" : "Finalize session"}
-              </Button>
-              <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Finalize this triage session?</DialogTitle>
-                    <DialogDescription>
-                      The conversation will close and a Change Set will be queued for review. This
-                      cannot be undone.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setShowConfirm(false)}>
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        setShowConfirm(false);
-                        handleApply();
-                      }}
-                    >
-                      Finalize session
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
+                <SelectValue placeholder="Create issue in… (optional)" />
+              </SelectTrigger>
+              <SelectContent>
+                {REPOS.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {r}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              disabled={isApplying || isClosed}
+              onClick={() => setShowConfirm(true)}
+            >
+              {isApplying ? "Finalizing…" : "Finalize session"}
+            </Button>
+            <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Finalize this triage session?</DialogTitle>
+                  <DialogDescription>
+                    The conversation will close and a Change Set will be queued for review. This
+                    cannot be undone.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowConfirm(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setShowConfirm(false);
+                      handleApply();
+                    }}
+                  >
+                    Finalize session
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
           {pendingChangeSet && (
             <div className="rounded-md border bg-muted p-3 text-xs space-y-1">
