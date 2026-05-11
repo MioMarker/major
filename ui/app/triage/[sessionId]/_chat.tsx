@@ -4,6 +4,15 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -35,6 +44,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
     useState<{ url: string; number: number } | null>(null);
   const [isSending, startSend] = useTransition();
   const [isApplying, startApply] = useTransition();
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const isClosed = session.status === "closed";
 
@@ -55,6 +65,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
   }
 
   function handleApply() {
+    setConfirmOpen(false);
     startApply(async () => {
       const token = await getSessionToken();
       const cs = await finalizeTriageSession(session.id, token ?? undefined);
@@ -155,7 +166,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
               <Button
                 size="sm"
                 disabled={isApplying || isClosed}
-                onClick={handleApply}
+                onClick={() => setConfirmOpen(true)}
               >
                 {isApplying ? "Submitting…" : "Submit →"}
               </Button>
@@ -186,6 +197,28 @@ export function TriageChat({ session }: { session: TriageSession }) {
           )}
         </div>
       </CardContent>
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Finalize triage session?</DialogTitle>
+            <DialogDescription>
+              The conversation will close and a Change Set will be queued for
+              review. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline" size="sm">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button size="sm" onClick={handleApply}>
+              Finalize session
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
