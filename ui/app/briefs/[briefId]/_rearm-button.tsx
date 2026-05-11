@@ -49,7 +49,7 @@ export function RearmBriefButton({ briefId }: { briefId: number }) {
           <DialogDescription>
             Returns the brief to <code>ready-for-agent</code> so the next idle Shell
             claims it. Records a <code>rearmed</code> Event with your reason. Use when
-            the prior failure was an environmental issue you've fixed (sandbox change,
+            the prior failure was an environmental issue you&apos;ve fixed (sandbox change,
             scope expansion, dependency update, etc.) and a fresh Run should now succeed.
           </DialogDescription>
         </DialogHeader>

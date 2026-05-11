@@ -49,13 +49,22 @@ agent-running  (single active Run; coordination metadata live)
   │       │   → done  (terminal; accepted Event; Actor=human:<merger.login> on webhook path)
   │       │   PR-closed-without-merge webhook (ADR 007) OR human reject in UI
   │       │   → wontfix  (terminal; Actor=human:<closer.login> on webhook path)
+  │       │   Mode 1 per-PR merge attempt fails (ADR 016)
+  │       │   → merge-blocked
   ├─→ ready-for-human  (any Run Finalization that does not produce ready-for-review;
   │       │              Human Handoff Event; ADR 012 collapses all failure dispositions here)
   │       └─→ ready-for-agent (resolved) or wontfix (rejected) or done (PR-merge webhook)
+  ├─→ merge-blocked  (non-terminal; ADR 016; Mode 1 attempt rejected — conflict, red
+  │       │            CI, etc.; reason persisted on the status-transitioned Event)
+  │       │   Mode 1 retry succeeds OR PR-merge webhook (ADR 007)
+  │       │   → done  (terminal; Actor=human:<merge-run-initiator|merger.login>)
+  │       │   PR-closed-without-merge webhook (ADR 007)
+  │       │   → wontfix  (terminal; Actor=human:<closer.login>)
   └─→ ready-for-agent  (lease expired via Reaper or System Run Cancellation; not a Run
                         failure — next Run reuses same major/brief-<id> branch)
 
 terminal: done | wontfix
+non-terminal recoverable: merge-blocked (re-eligible for Mode 1 queue alongside ready-for-review)
 ```
 
 ### Transition authority
@@ -73,6 +82,9 @@ terminal: done | wontfix
 | any → ready-for-human | Human Run Cancellation | always routes here per Foundry rule |
 | ready-for-review → done | human (UI confirm) OR PR-merge webhook (ADR 007) | acceptance Event; webhook path attributes Actor as `human:<merger.login>`, also closes source GitHub issue if `briefs.source_issue_*` is populated |
 | ready-for-review → wontfix | human (UI reject) OR PR-closed-without-merge webhook (ADR 007) | rejected Event; webhook path attributes Actor as `human:<closer.login>` |
+| ready-for-review → merge-blocked | Mode 1 edge function per-PR attempt | `status-transitioned` Event carries `merge_attempt_failed_reason`, `pr_url`, `github_response`; Actor `human:<merge-run-initiator>` (ADR 016) |
+| merge-blocked → done | Mode 1 retry succeeds OR PR-merge webhook (ADR 007) | same attribution as ready-for-review → done; ADR 007 handler accepts any non-terminal source |
+| merge-blocked → wontfix | PR-closed-without-merge webhook (ADR 007) | same path as ready-for-review → wontfix |
 | ready-for-human → done / wontfix | PR-merge / PR-closed webhook (ADR 007) | same attribution rules; absorbs the case where a parked Brief's PR is acted on directly |
 
 **Single Active Run Rule** (DB invariant): `UNIQUE(brief_id) WHERE outcome='running'`.
@@ -111,7 +123,7 @@ Logic: any `expected_paths` intersection OR mass-rerank → Change Set queued fo
 - **Cyberbrain** — Major's `major.*` schema in Supabase Postgres; system of record
 - **Workflow Primitive** — anything stored in the Cyberbrain
 - **Brief** — durable unit of intent; the crafted instruction the human hands to Major
-- **Brief Status** — lifecycle position; one of `{ready-for-triage, needs-info, ready-for-agent, agent-running, ready-for-review, ready-for-human, done, wontfix}`
+- **Brief Status** — lifecycle position; one of `{ready-for-triage, needs-info, ready-for-agent, agent-running, ready-for-review, ready-for-human, merge-blocked, done, wontfix}`
 - **Brief Classification** — `bug-fix | feature | refactor | docs | parent | epic`
 - **Brief Relationship** — parent/child or blocks/blocked-by edge
 - **Parent Review Requirement** — `required` (default) | `optional` | `excluded`

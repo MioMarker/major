@@ -78,7 +78,7 @@ For each repo Major drives — `MioMarker/healthbite`, `MioMarker/healix`, **and
 2. Payload URL: `https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1/major-github-webhook`
 3. Content type: `application/json`.
 4. Secret: same value as `GITHUB_WEBHOOK_SECRET` from step 1.3.
-5. Events: `Pull requests`, `Check runs`, `Pushes`. (The handler ignores other events; subscribing to fewer events is the safer default.)
+5. Events: `Pull requests`, `Check runs`, `Pushes`, `Issues`. (`Issues` events trigger Triage Session creation per ADR 010 when an issue is labeled `major:triage`.)
 6. Active: yes.
 
 `MioMarker/major` is on the list because Major drives PRs against itself for self-improving Briefs (doc edits, ADR follow-ups, internal tooling). Without the webhook registered there, the ADR 007 auto-close handler never sees the merge and the Brief stays stuck at `ready-for-review`. (This was caught during the first end-to-end dogfood of the auto-close webhook — see Brief 12 / PR #39, 2026-05-10.)
@@ -220,7 +220,143 @@ WHERE type = 'run-started'
 
 Telemetry Records live in `major.telemetry_records` and are queried similarly. Events drive lifecycle; Telemetry is observation only.
 
-### 2.5 Monthly operator checklist
+### 2.5 Inbound trigger smoke test
+
+Use this procedure to confirm that the end-to-end inbound pipeline — GitHub issue → `major:triage` label → Triage Session → auto-triage → Brief — is functioning. Run it after initial setup, after webhook re-registration, or any time you suspect the inbound path is broken.
+
+**Prerequisites.**
+
+- The `major-github-webhook` function is deployed and the webhook is registered on the target repo (§1.4 and §1.6).
+- `GITHUB_WEBHOOK_SECRET` is set in Supabase secrets (§1.3).
+- A test GitHub issue is open on one of the watched repos (`MioMarker/major`, `MioMarker/healthbite`, or `MioMarker/healix`). Create one now if needed; the title and body do not matter for smoke purposes.
+
+**Trigger the pipeline.** Add the `major:triage` label to the test issue (either at creation time or via the Labels panel). GitHub fires an `issues.labeled` event to the webhook endpoint.
+
+---
+
+**Check 1 — Webhook delivery received and acknowledged.**
+
+Open the repo's webhook delivery log (GitHub → Settings → Webhooks → the Major webhook → Recent Deliveries). The most recent `issues` event should show `200 OK`. If it shows a non-200 or a timeout, the function is unreachable or the signature check failed — confirm `GITHUB_WEBHOOK_SECRET` matches the value registered on the webhook and that the function is deployed.
+
+Confirm the Event row landed in the Cyberbrain:
+
+```sql
+SELECT id, type, actor, payload, created_at
+FROM major.events
+WHERE type = 'triage-session-created'
+ORDER BY created_at DESC
+LIMIT 5;
+```
+
+Expected: at least one row with `actor = 'integration:github'` and `payload` containing `source_issue_repo` and `source_issue_number` matching your test issue.
+
+---
+
+**Check 2 — Triage Session created with inbound metadata.**
+
+```sql
+SELECT id, status, initiator_actor, trigger_payload, created_at
+FROM major.triage_sessions
+WHERE initiator_actor = 'integration:github'
+  AND trigger_payload->>'source_issue_repo' = '<owner>/<repo>'
+  AND (trigger_payload->>'source_issue_number')::int = <issue_number>
+ORDER BY created_at DESC
+LIMIT 1;
+```
+
+Expected: one row with `status = 'open'`, `initiator_actor = 'integration:github'`, and `trigger_payload` containing the issue's URL, title, body, and author login. Record the `id` as `<session_id>` for the remaining checks.
+
+If no row exists, the webhook handler's `handleIssue` path did not execute. Verify the label name is exactly `major:triage` (case-sensitive) and the issue's repo is in the watched allowlist.
+
+---
+
+**Check 3 — Auto Triage processed and closed the Session.**
+
+After labeling, the Triage Session sits `open` until `major-auto-triage-sessions` processes it. Trigger this step by clicking **Auto Triage** on the Triage Sessions page in the UI (`/triage`), or POST directly:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer <service-role-key>" \
+  https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1/major-auto-triage-sessions
+```
+
+Then confirm the session is closed and the transcript has an auto-triage message:
+
+```sql
+SELECT id, status,
+       transcript->-1 AS last_transcript_message
+FROM major.triage_sessions
+WHERE id = <session_id>;
+```
+
+Expected: `status = 'closed'` and the last transcript message has `role = 'agent'` with content describing what Brief was proposed.
+
+---
+
+**Check 4 — Change Set produced.**
+
+```sql
+SELECT cs.id    AS change_set_id,
+       cs.decision,
+       cs.needs_human_apply,
+       cs.summary,
+       count(op.id) AS op_count
+FROM major.triage_change_sets cs
+JOIN major.triage_change_operations op ON op.change_set_id = cs.id
+WHERE cs.triage_session_id = <session_id>
+GROUP BY cs.id, cs.decision, cs.needs_human_apply, cs.summary;
+```
+
+Expected: one row with `decision = 'proposed'` (or `'accepted'` if the RPC already ran), `op_count >= 2` (at minimum a `create-brief` op and a `set-ready-state` op). Record the `change_set_id`.
+
+---
+
+**Check 5 — Path-blocker decision resolved.**
+
+```sql
+SELECT op.id,
+       op.operation_type,
+       op.status,
+       op.sequence_index
+FROM major.triage_change_operations op
+WHERE op.change_set_id = <change_set_id>
+ORDER BY op.sequence_index;
+```
+
+Cross-reference with the Change Set's `needs_human_apply`:
+
+- **`needs_human_apply = false` (auto-applied path):** all operations should show `status = 'applied'`. If any are still `'proposed'`, the `apply_change_set` RPC may have failed — check Supabase function logs for `[major-auto-triage-sessions] apply RPC failed`.
+- **`needs_human_apply = true` (human-apply path):** all operations will be `'proposed'` and the Change Set appears in Pending QA (`/pending-qa`). A human must apply it before Briefs are created. For smoke purposes, confirm the Change Set appears in the UI and proceed to Check 6 only after manually applying.
+
+---
+
+**Check 6 — Brief created with correct source linkage and authorship.**
+
+```sql
+SELECT b.id             AS brief_id,
+       b.status,
+       b.source_issue_repo,
+       b.source_issue_number,
+       r.revision_number,
+       r.author_actor
+FROM major.briefs b
+JOIN major.brief_content_revisions r ON r.id = b.current_revision_id
+WHERE b.source_issue_repo = '<owner>/<repo>'
+  AND b.source_issue_number = <issue_number>;
+```
+
+Expected:
+
+- One row (or more if the Triage Tachikoma split the issue into multiple Briefs).
+- `source_issue_repo` and `source_issue_number` match the test issue.
+- `status = 'ready-for-agent'` (auto-apply path) or `'ready-for-triage'` (if still awaiting human apply).
+- `author_actor = 'major:auto-triage'` — confirms that the Brief Content was attributed to the Triage Tachikoma, not to the human who filed the issue.
+
+**All six checks passing confirms the full inbound pipeline is operational.**
+
+If any check fails, emit a telemetry record in `major.telemetry_records` with `observation_type = 'external-system-error'` and the failed step, then file a GitHub issue titled `Security: inbound-trigger-check-<N>-failed` or the appropriate label so the post-incident review has a tracking record.
+
+### 2.6 Monthly operator checklist
 
 Run on the first business day of each month:
 
