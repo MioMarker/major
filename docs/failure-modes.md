@@ -235,6 +235,12 @@ Vocabulary follows ADR 004 (Brief / Shell / Cyberbrain).
 
 If the failure is recurring and operationally painful, the v2 fix is a polling reconciler that sweeps recently-merged Briefs and retries their pending issue-close calls. Out of scope for v1; this failure-mode entry is the manual fallback.
 
+**Sub-case: wontfix-close (`state_reason: "not_planned"`).** When a Brief is rejected as `wontfix` via the UI, the source GitHub issue is closed with `state_reason: "not_planned"` (rather than `"completed"`). This is distinct from the normal merge-triggered close (which uses `"completed"`).
+
+Observable difference for operators: the issue appears under GitHub's "Not planned" closed filter, not the "Completed" filter. Search and triage dashboards that filter on `state_reason` will see these issues separately from successfully-resolved ones.
+
+If the issue is still open after a `wontfix` rejection: follow the same token-scope and rate-limit checks as the main §18 escalation path above. When closing manually, pass `state_reason: "not_planned"` to preserve the semantic distinction.
+
 ---
 
 ## 19. Tachikoma bash command denied by Phase 2 deny list (ADR 008)
@@ -346,3 +352,31 @@ select id, pr_url, updated_at
    ```
 
    If the Brief should be terminally abandoned: close the PR on GitHub instead — ADR 007's webhook handler transitions `merge-blocked → wontfix` automatically and records the closer as Actor.
+
+---
+
+## 22. Resolution comment / close partial failures
+
+Introduced by the `_shared/github-issue.ts` helper (Issue #3 / ADR 011). When a Brief reaches a terminal state, Major attempts two outbound GitHub calls: post a resolution comment, then close the issue. Either call can fail independently.
+
+**Sub-case A: Resolution comment failed, close succeeded.**
+
+**What it looks like.** The issue is closed on GitHub but the resolution comment was not posted. Symptom: issue is in a `closed` state (visible under the resolved filter) but has no closing comment from the Major bot.
+
+**Detection.** `[MajorGithubWebhook]` log line `resolution-comment-failed` alongside a successful `issue-close` log. A Telemetry Record with `observation_type='outbound-partial-failure'` and `payload.failed_step='comment'` is written.
+
+**Automated handling.** None. The issue is already closed; the failure is a cosmetic gap only.
+
+**Manual escalation.** Manually post the resolution comment on the issue (link to the merged PR and the Brief). Do not re-close the issue — it is already closed.
+
+---
+
+**Sub-case B: Close failed, resolution comment succeeded.**
+
+**What it looks like.** The resolution comment was posted on the GitHub issue, but the issue remains open. Symptom: the issue shows a bot comment documenting the resolution but is still in the `open` state.
+
+**Detection.** `[MajorGithubWebhook]` log line `issue-close-failed` alongside a successful `resolution-comment` log. A Telemetry Record with `observation_type='outbound-partial-failure'` and `payload.failed_step='close'` is written.
+
+**Automated handling.** None. Per ADR 011, the issue-close is a best-effort downstream effect; failure is logged but does not abort the Brief transition.
+
+**Manual escalation.** Manually close the issue. It is safe to do so — the resolution comment is already posted and documents the resolution. Follow the same token-scope and rate-limit checks as §18.

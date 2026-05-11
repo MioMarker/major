@@ -59,7 +59,7 @@ The component vocabulary (Brief / Shell / Cyberbrain / Tachikoma) follows ADR 00
 - **Treating GitHub Issues as the Brief store.** GitHub Issues are not Briefs. They can be a *trigger* (a webhook can create a Triage Session), but the Briefs themselves live in `major.briefs`.
 - **Editing Brief Content directly without creating a Content Revision.** Content is versioned. New text = new revision. Runs reference specific revisions.
 - **Treating the eval gate as required for `verified`.** It is advisory. Sandbox-run `tsc --noEmit` + tests are required; eval gate is decoration.
-- **Letting agents transition Briefs to `done`.** Acceptance is human-only in v1. The `done` Event must be attributed to a human Actor. The PR-merge webhook (ADR 007) is a human path: the merger's GitHub identity is recorded as the `done` Event Actor (`human:<merger.login>`). This is not an agent transition.
+- **Letting agents transition Briefs to `done`.** Acceptance is human-only in v1. The `done` Event must be attributed to a human Actor. Major's terminal transitions — whether triggered via the PR-merge webhook or via UI confirm/reject — close the source issue with a resolution comment, per ADR 011 (`docs/adr/011-outbound-brief-to-issue-resolution-comment.md`). This is not an agent transition.
 - **Conflating Shell with Tachikoma.** The Shell is the persistent container (the "cyborg body"); the Tachikoma is the ephemeral Claude Code subprocess that loads in, works, dissolves. One Shell, many Tachikomas over time.
 - **Using `Unix-shell sense` of `shell` interchangeably with Major's Shell.** Capitalized **Shell** means a Major Shell. Lowercase `shell` (`bash`, `zsh`, "shell out", "shell script") is the Unix concept and stays unchanged.
 
