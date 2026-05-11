@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -35,6 +35,11 @@ export function TriageChat({ session }: { session: TriageSession }) {
     useState<{ url: string; number: number } | null>(null);
   const [isSending, startSend] = useTransition();
   const [isApplying, startApply] = useTransition();
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const isClosed = session.status === "closed";
 
@@ -103,6 +108,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
                 No messages yet. Describe the work; the agent will grill.
               </div>
             )}
+            <div ref={bottomRef} />
           </div>
         </ScrollArea>
         <div className="flex flex-col gap-2">
