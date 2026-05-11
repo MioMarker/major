@@ -43,6 +43,21 @@ export async function getBrief(id: number, authToken?: string): Promise<BriefDet
   });
 }
 
+// Snapshot of every Brief whose status makes it eligible for a Mode 1 merge
+// attempt (ADR 016): `ready-for-review` (never tried) plus `merge-blocked`
+// (last attempt failed; can be retried). Two API calls because the
+// `major-list-briefs` endpoint accepts a single status; the result is the
+// union, in the order returned.
+export async function listBriefsEligibleForMerge(
+  authToken?: string,
+): Promise<Brief[]> {
+  const [reviewBriefs, blockedBriefs] = await Promise.all([
+    listBriefs({ status: "ready-for-review", authToken }),
+    listBriefs({ status: "merge-blocked", authToken }),
+  ]);
+  return [...reviewBriefs, ...blockedBriefs];
+}
+
 export async function listQaBriefs(authToken?: string): Promise<Brief[]> {
   if (USE_MOCK) {
     return listMockQaBriefs();
