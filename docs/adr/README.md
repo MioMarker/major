@@ -53,3 +53,6 @@ This preserves the historical record of why we believed what we believed at the 
 - [012 — Failed-Run disposition: park at `ready-for-human`, defer retry budget](./012-failed-run-disposition.md)
 - [013 — Planner output contract: Markdown plan file at `/work/.major/plan.md`](./013-planner-output-contract.md)
 - [014 — Run retry budget: per-Brief cap, resets on new Content Revision, auto-attempt below cap](./014-run-retry-budget.md)
+- [015 — `major-shell-bot` GitHub identity authors all Shell-opened PRs](./015-major-shell-bot-identity.md)
+- [016 — `merge-blocked` Brief status for Mode 1 attempt failures](./016-merge-blocked-brief-status.md)
+- [017 — Mode 1 per-PR algorithm upgrade: pre-flight + approve + merge](./017-mode-1-pre-flight-merge-algorithm.md)
