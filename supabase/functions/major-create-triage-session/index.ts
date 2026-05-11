@@ -28,20 +28,9 @@ import { handleOptions } from "../_shared/cors.ts";
 import { authenticate } from "../_shared/auth.ts";
 import { errorResponse, jsonResponse } from "../_shared/response.ts";
 
-const TriggerPayloadSchema = z.object({
-  source_issue_repo: z.string().min(1),
-  source_issue_number: z.number().int().positive(),
-  source_issue_url: z.string().optional(),
-  source_issue_author_login: z.string().nullable().optional(),
-  source_issue_title: z.string().nullable().optional(),
-  source_issue_body_md: z.string().nullable().optional(),
-  source_issue_created_at: z.string().nullable().optional(),
-  github_delivery: z.string().optional(),
-}).passthrough();
-
 const CreateBodySchema = z.object({
   entry_point: z.string().optional(),
-  trigger_payload: TriggerPayloadSchema.optional(),
+  trigger_payload: z.record(z.string(), z.unknown()).optional(),
 }).passthrough();
 
 Deno.serve(async (req) => {
@@ -77,6 +66,9 @@ Deno.serve(async (req) => {
       status: "open",
       transcript: [],
     };
+    if (parsed.data.entry_point) {
+      insertRow.entry_point = parsed.data.entry_point;
+    }
     if (parsed.data.trigger_payload) {
       insertRow.trigger_payload = parsed.data.trigger_payload;
     }
