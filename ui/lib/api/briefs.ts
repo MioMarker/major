@@ -97,3 +97,29 @@ export async function rearmBrief(
     authToken,
   });
 }
+
+export async function deleteBrief(
+  briefId: number,
+  authToken?: string,
+): Promise<{ briefId: number; deleted: boolean }> {
+  if (USE_MOCK) {
+    return { briefId, deleted: true };
+  }
+  return majorFetch<{ briefId: number; deleted: boolean }>("major-delete-brief", {
+    method: "POST",
+    body: { briefId },
+    authToken,
+  });
+}
+
+export async function quickStart(
+  authToken?: string,
+): Promise<{ triaged: number; readyForAgent: number }> {
+  if (USE_MOCK) {
+    return { triaged: 3, readyForAgent: 2 };
+  }
+  return majorFetch<{ triaged: number; readyForAgent: number }>("major-quick-start", {
+    method: "POST",
+    authToken,
+  });
+}

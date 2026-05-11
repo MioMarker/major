@@ -27,6 +27,8 @@ export const MOCK_TRIAGE_SESSIONS: TriageSession[] = [
     ],
     draft_prd:
       "# Meal report empty state polish\n\n## Acceptance Criteria\n- Empty state shows friendly illustration + CTA.\n- CTA labelled 'Log your first meal' opens log-meal flow.\n\n## Scope Boundaries\n- UI-only.\n\n## Expected Paths\n- `src/components/meals/**`\n",
+    entry_point: null,
+    trigger_payload: null,
     created_at: ago(60 * 5),
     updated_at: ago(60 * 4),
   },
@@ -42,6 +44,12 @@ export const MOCK_TRIAGE_SESSIONS: TriageSession[] = [
       },
     ],
     draft_prd: null,
+    entry_point: "integration:github",
+    trigger_payload: {
+      source_issue_repo: "MioMarker/healthbite",
+      source_issue_number: 42,
+      source_issue_title: "Streak ring color drift in dark mode",
+    },
     created_at: ago(60 * 24),
     updated_at: ago(60 * 24),
   },
@@ -63,6 +71,8 @@ export const MOCK_TRIAGE_SESSIONS: TriageSession[] = [
     ],
     draft_prd:
       "# Eval pipeline staging-only docs\n\nMake the staging-only constraint loud in eval-pipeline.md.",
+    entry_point: null,
+    trigger_payload: null,
     created_at: ago(60 * 24 * 5),
     updated_at: ago(60 * 24 * 4),
   },

@@ -61,6 +61,7 @@ export type ChangeOperationStatus =
 
 export interface Brief {
   id: number;
+  title: string | null;
   status: BriefStatus;
   classifications: BriefClassification[];
   expected_artifact_type: ArtifactType | null;
@@ -192,12 +193,20 @@ export interface TriageMessage {
   ts: string;
 }
 
+export interface GithubIssueTrigger {
+  source_issue_repo: string;
+  source_issue_number: number;
+  source_issue_title: string;
+}
+
 export interface TriageSession {
   id: number;
   initiator_actor: string;
   status: TriageSessionStatus;
   transcript: TriageMessage[];
   draft_prd: string | null;
+  entry_point: string | null;
+  trigger_payload: GithubIssueTrigger | Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }
@@ -257,3 +266,12 @@ export interface SettingsPayload {
   auto_triage_enabled: boolean;
   auto_triage_on_new_briefs: boolean;
 }
+
+export type ExternalIssue = {
+  repo: string;
+  number: number;
+  title: string;
+  labels: string[];
+  created_at: string;
+  url: string;
+};

@@ -11,8 +11,7 @@ export default async function SettingsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Path-blocker configuration, mass-rerank threshold, Shell pool hint, and
-          auto-triage policy toggles.
+          Auto-triage policy and advanced configuration.
         </p>
       </div>
       <SettingsForm settings={settings} />

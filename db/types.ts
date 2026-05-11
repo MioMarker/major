@@ -297,12 +297,20 @@ export type BriefArtifactPayload = {
 // Table row types
 // ────────────────────────────────────────────────────────────────────
 
+export type GithubIssueTriggerPayload = {
+  source_issue_repo: string;
+  source_issue_number: number;
+  source_issue_title: string;
+};
+
 export type TriageSession = {
   id: number;
   initiatorActor: ActorString;
   status: TriageSessionStatus;
   transcript: TriageTranscriptMessage[];
   draftPrd: string | null;
+  entryPoint: string | null;
+  triggerPayload: GithubIssueTriggerPayload | Record<string, unknown> | null;
   createdAt: Date | string;
   updatedAt: Date | string;
 };

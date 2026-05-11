@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
     let query = auth.client
       .from("triage_sessions")
       .select(
-        "id, initiator_actor, status, transcript, draft_prd, created_at, updated_at",
+        "id, initiator_actor, status, transcript, draft_prd, entry_point, trigger_payload, created_at, updated_at",
       )
       .order("updated_at", { ascending: false })
       .range(offset, offset + limit - 1);

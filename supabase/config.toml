@@ -69,6 +69,9 @@ verify_jwt = false
 [functions.major-start-auto-triage]
 verify_jwt = false
 
+[functions.major-auto-triage-sessions]
+verify_jwt = false
+
 [functions.major-record-telemetry]
 verify_jwt = false
 
@@ -76,4 +79,22 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.major-reaper]
+verify_jwt = false
+
+[functions.major-create-github-issue]
+verify_jwt = false
+
+[functions.major-list-external-issues]
+verify_jwt = false
+
+[functions.major-import-external-issues]
+verify_jwt = false
+
+[functions.major-quick-start]
+verify_jwt = false
+
+[functions.major-get-settings]
+verify_jwt = false
+
+[functions.major-update-settings]
 verify_jwt = false

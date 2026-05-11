@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
     if (!auth.ok) return errorResponse(auth.message, auth.status);
 
     const body = (await req.json()) as FinalizeBody;
-    if (!body?.sessionId || !Array.isArray(body.operations) || body.operations.length === 0) {
+    if (!body?.sessionId || !Array.isArray(body.operations)) {
       return errorResponse("Invalid body — expected { sessionId, operations: [...] }", 400);
     }
 
@@ -66,6 +66,35 @@ Deno.serve(async (req) => {
       if (!op.operation_type || typeof op.payload !== "object" || typeof op.sequence_index !== "number") {
         return errorResponse(`Invalid op: ${JSON.stringify(op)}`, 400);
       }
+    }
+
+    // Empty-operations fast path: the triage Tachikoma isn't wired yet; the UI
+    // sends operations:[] as a stub so sessions can be closed without proposals.
+    if (body.operations.length === 0) {
+      const { data: emptySet, error: emptyErr } = await auth.client
+        .from("triage_change_sets")
+        .insert({
+          triage_session_id: body.sessionId,
+          decision: "proposed",
+          summary: body.summary ?? null,
+          needs_human_apply: false,
+          blocker_reasons: [],
+        })
+        .select("id, needs_human_apply, blocker_reasons")
+        .single();
+      if (emptyErr || !emptySet) {
+        return errorResponse(emptyErr?.message ?? "change set insert failed", 500);
+      }
+      await auth.client
+        .from("triage_sessions")
+        .update({ status: "closed" })
+        .eq("id", body.sessionId);
+      return jsonResponse({
+        changeSetId: emptySet.id,
+        needsHumanApply: false,
+        blockerReasons: [],
+        appliedOpCount: 0,
+      });
     }
 
     // Load the path-blocker config (singleton row id=1).

@@ -6,6 +6,7 @@ const ago = (mins: number) => new Date(Date.now() - mins * 60 * 1000).toISOStrin
 export const MOCK_BRIEFS: Brief[] = [
   {
     id: 101,
+    title: "Meal report empty-state polish",
     status: "ready-for-agent",
     classifications: ["feature"],
     expected_artifact_type: "git-change",
@@ -25,6 +26,7 @@ export const MOCK_BRIEFS: Brief[] = [
   },
   {
     id: 102,
+    title: "Fix submitMealAsync race condition",
     status: "agent-running",
     classifications: ["bug-fix"],
     expected_artifact_type: "git-change",
@@ -44,6 +46,7 @@ export const MOCK_BRIEFS: Brief[] = [
   },
   {
     id: 103,
+    title: "MealReportsView v2 — chart polish",
     status: "ready-for-review",
     classifications: ["feature"],
     expected_artifact_type: "git-change",
@@ -63,6 +66,7 @@ export const MOCK_BRIEFS: Brief[] = [
   },
   {
     id: 104,
+    title: null,
     status: "ready-for-triage",
     classifications: ["refactor"],
     expected_artifact_type: null,
@@ -82,6 +86,7 @@ export const MOCK_BRIEFS: Brief[] = [
   },
   {
     id: 105,
+    title: "Insights analytics tab — weekly breakdown",
     status: "needs-info",
     classifications: ["feature"],
     expected_artifact_type: "git-change",
@@ -101,6 +106,7 @@ export const MOCK_BRIEFS: Brief[] = [
   },
   {
     id: 106,
+    title: "Fix analyze-meal AI timeout on slow connections",
     status: "ready-for-human",
     classifications: ["bug-fix"],
     expected_artifact_type: "git-change",
@@ -120,6 +126,7 @@ export const MOCK_BRIEFS: Brief[] = [
   },
   {
     id: 107,
+    title: "Document eval pipeline staging-only constraint",
     status: "done",
     classifications: ["docs"],
     expected_artifact_type: "git-change",
@@ -139,6 +146,7 @@ export const MOCK_BRIEFS: Brief[] = [
   },
   {
     id: 108,
+    title: "Fix Sentry error capture on production builds",
     status: "ready-for-review",
     classifications: ["bug-fix"],
     expected_artifact_type: "git-change",
