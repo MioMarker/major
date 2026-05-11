@@ -37,6 +37,9 @@ import { deriveIdempotencyKey } from "../_shared/idempotency.ts";
 
 const GITHUB_API = "https://api.github.com";
 const AUTO_TRIAGE_ACTOR = "major:auto-triage";
+// Hard cap per invocation — prevents hitting Supabase's 150s free-tier timeout
+// when the queue is large. Callers invoke again to drain the remainder.
+const BATCH_LIMIT = 5;
 
 interface GithubTrigger {
   source_issue_repo: string;
@@ -150,7 +153,7 @@ async function callClaude(
 
   const response = await anthropic.messages.create({
     model: Deno.env.get("AUTO_TRIAGE_MODEL") ?? "claude-sonnet-4-6",
-    max_tokens: 4096,
+    max_tokens: 1500,
     system: `You are Major's auto-triage AI. Major is a software orchestration system where AI coding agents implement work items called Briefs. Your job is to read a GitHub issue and produce a Brief that's ready for an agent to implement.
 
 ## Bias toward action
@@ -470,11 +473,9 @@ Deno.serve(async (req) => {
       return jsonResponse({ processed: 0, triaged: 0, needs_human_apply: 0, failed: 0, results: [] });
     }
 
-    // Process sessions serially with a 1-second gap to avoid burst rate limits.
-    const typedSessions = sessions as Session[];
+    const typedSessions = (sessions as Session[]).slice(0, BATCH_LIMIT);
     const results: SessionResult[] = [];
     for (let i = 0; i < typedSessions.length; i++) {
-      if (i > 0) await new Promise((r) => setTimeout(r, 1000));
       const result = await processSession(
         typedSessions[i],
         auth.client,

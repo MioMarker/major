@@ -40,27 +40,34 @@ export function AutoTriageButton() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [done, setDone] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
   const [results, setResults] = useState<AutoTriageSessionResult[]>([]);
   const [counts, setCounts] = useState({ processed: 0, triaged: 0, needs_human_apply: 0, failed: 0 });
   const [isPending, startTransition] = useTransition();
 
   function handleRun() {
     setDone(false);
+    setRunError(null);
     setResults([]);
     setCounts({ processed: 0, triaged: 0, needs_human_apply: 0, failed: 0 });
     setOpen(true);
     startTransition(async () => {
-      const token = await getSessionToken();
-      const resp = await autoTriageSessions(token ?? undefined);
-      setResults(resp.results);
-      setCounts({
-        processed: resp.processed,
-        triaged: resp.triaged,
-        needs_human_apply: resp.needs_human_apply,
-        failed: resp.failed,
-      });
-      setDone(true);
-      router.refresh();
+      try {
+        const token = await getSessionToken();
+        const resp = await autoTriageSessions(token ?? undefined);
+        setResults(resp.results);
+        setCounts({
+          processed: resp.processed,
+          triaged: resp.triaged,
+          needs_human_apply: resp.needs_human_apply,
+          failed: resp.failed,
+        });
+        router.refresh();
+      } catch (err) {
+        setRunError(err instanceof Error ? err.message : "Auto-triage failed");
+      } finally {
+        setDone(true);
+      }
     });
   }
 
@@ -77,10 +84,12 @@ export function AutoTriageButton() {
         {isPending ? "Triaging…" : "Auto-triage"}
       </Button>
 
-      <Dialog open={open} onOpenChange={(v) => { if (!isPending) setOpen(v); }}>
+      <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{done ? "Auto-triage complete" : "Auto-triaging…"}</DialogTitle>
+            <DialogTitle>
+              {!done ? "Auto-triaging…" : runError ? "Auto-triage failed" : "Auto-triage complete"}
+            </DialogTitle>
             {!done && (
               <DialogDescription>
                 Running triage on open sessions. This may take a minute.
@@ -93,6 +102,15 @@ export function AutoTriageButton() {
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
               <p className="text-sm">Analyzing sessions with AI…</p>
             </div>
+          ) : runError ? (
+            <>
+              <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                {runError}
+              </p>
+              <div className="flex justify-end">
+                <Button onClick={handleClose}>Close</Button>
+              </div>
+            </>
           ) : (
             <>
               <div className="flex gap-4 text-sm">
