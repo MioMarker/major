@@ -8,11 +8,11 @@
 //   1. dispatches `X-GitHub-Event: issues` → `handleIssue()`
 //      (verified by `handleIssue` being importable + the dispatch line in
 //      `index.ts` source)
-//   2. opened + `major:triage` label + human sender + watched repo → triggers
-//   3. opened without `major:triage` label → skips
+//   2. opened + `needs-triage` label + human sender + watched repo → triggers
+//   3. opened without `needs-triage` label → skips
 //   4. opened with bot sender → skips
 //   5. opened on disallowed repo → skips
-//   6. labeled with `major:triage` on open issue → triggers
+//   6. labeled with `needs-triage` on open issue → triggers
 //   7. labeled with a different label → skips
 //   8. opened twice on the same issue → second call is a no-op (idempotency)
 //   9. closed issue → skips
@@ -206,13 +206,13 @@ Deno.test("AC1: index.ts dispatches `issues` event to handleIssue", async () => 
 // AC2: opened + label + human + watched repo → triggers
 // ────────────────────────────────────────────────────────────────────
 
-Deno.test("AC2: opened with major:triage label, human sender, watched repo → creates Triage Session", async () => {
+Deno.test("AC2: opened with needs-triage label, human sender, watched repo → creates Triage Session", async () => {
   const { client, recorded } = makeMockClient();
   const payload = buildIssuePayload({
     action: "opened",
     repo: "MioMarker/healthbite",
     issueNumber: 42,
-    issueLabels: [{ name: "bug" }, { name: "major:triage" }],
+    issueLabels: [{ name: "bug" }, { name: "needs-triage" }],
   });
   await handleIssue(client, payload, "delivery-abc");
 
@@ -256,7 +256,7 @@ Deno.test("AC2: opened with major:triage label, human sender, watched repo → c
 // AC3: opened without label → skips
 // ────────────────────────────────────────────────────────────────────
 
-Deno.test("AC3: opened without major:triage label → no Session, no Event", async () => {
+Deno.test("AC3: opened without needs-triage label → no Session, no Event", async () => {
   const { client, recorded } = makeMockClient();
   const payload = buildIssuePayload({
     action: "opened",
@@ -286,7 +286,7 @@ Deno.test("AC4: opened with Bot sender → no Session, no Event", async () => {
     action: "opened",
     senderType: "Bot",
     senderLogin: "dependabot[bot]",
-    issueLabels: [{ name: "major:triage" }],
+    issueLabels: [{ name: "needs-triage" }],
   });
   await handleIssue(client, payload, "delivery-bot");
 
@@ -306,7 +306,7 @@ Deno.test("AC5: opened on a repo outside the allowlist → no Session, no Event"
   const payload = buildIssuePayload({
     action: "opened",
     repo: "MioMarker/not-watched",
-    issueLabels: [{ name: "major:triage" }],
+    issueLabels: [{ name: "needs-triage" }],
   });
   await handleIssue(client, payload, "delivery-bad-repo");
 
@@ -316,18 +316,18 @@ Deno.test("AC5: opened on a repo outside the allowlist → no Session, no Event"
 });
 
 // ────────────────────────────────────────────────────────────────────
-// AC6: labeled with major:triage on open issue → triggers
+// AC6: labeled with needs-triage on open issue → triggers
 // ────────────────────────────────────────────────────────────────────
 
-Deno.test("AC6: action=labeled with major:triage on an open issue → creates Triage Session", async () => {
+Deno.test("AC6: action=labeled with needs-triage on an open issue → creates Triage Session", async () => {
   const { client, recorded } = makeMockClient();
   const payload = buildIssuePayload({
     action: "labeled",
     repo: "MioMarker/major",
     issueNumber: 77,
     issueState: "open",
-    issueLabels: [{ name: "major:triage" }],
-    addedLabel: "major:triage",
+    issueLabels: [{ name: "needs-triage" }],
+    addedLabel: "needs-triage",
   });
   await handleIssue(client, payload, "delivery-labeled");
 
@@ -374,7 +374,7 @@ Deno.test("AC8: redelivery (open Session already exists) → no-op, no new Sessi
     action: "opened",
     repo: "MioMarker/healthbite",
     issueNumber: 42,
-    issueLabels: [{ name: "major:triage" }],
+    issueLabels: [{ name: "needs-triage" }],
   });
   await handleIssue(client, payload, "delivery-redelivery");
 
@@ -394,7 +394,7 @@ Deno.test("AC9: action=closed → no Session, no Event (lifecycle ignored)", asy
   const payload = buildIssuePayload({
     action: "closed",
     issueState: "closed",
-    issueLabels: [{ name: "major:triage" }],
+    issueLabels: [{ name: "needs-triage" }],
   });
   await handleIssue(client, payload, "delivery-closed");
 

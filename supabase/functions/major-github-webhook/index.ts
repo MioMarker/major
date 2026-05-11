@@ -17,7 +17,7 @@
 //                       check names against the latest run on the Brief.
 //   - push            — informational only; emits an Event we can use to
 //                       drive UI badges, never alters lifecycle status.
-//   - issues          — opened/labeled with `major:triage`; seeds a Triage
+//   - issues          — opened/labeled with `needs-triage`; seeds a Triage
 //                       Session per ADR 010 (inbound GitHub issue →
 //                       Triage Session). See `handleIssue`.
 //
@@ -47,7 +47,7 @@ const KNOWN_CHECK_NAMES = new Set([
 ]);
 
 // ADR 010: inbound trigger gate.
-const TRIAGE_LABEL = "major:triage";
+const TRIAGE_LABEL = "needs-triage";
 const WATCHED_REPOS = new Set([
   "MioMarker/major",
   "MioMarker/healthbite",
@@ -436,8 +436,8 @@ async function handlePush(
 // issues — ADR 010 inbound: seed a Triage Session iff the gate passes
 // ─────────────────────────────────────────────────────────────────
 // Gate (all must hold):
-//   - action === "opened" with `major:triage` label, OR action === "labeled"
-//     with the just-added label === "major:triage" on an open issue
+//   - action === "opened" with `needs-triage` label, OR action === "labeled"
+//     with the just-added label === "needs-triage" on an open issue
 //   - sender.type === "User"
 //   - repository.full_name ∈ WATCHED_REPOS
 //   - no non-finalized Triage Session already exists for this issue (idempotency)

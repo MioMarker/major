@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { updateSettings } from "@/lib/api/settings";
+import { getSessionToken } from "@/lib/auth";
 import type { SettingsPayload } from "@/lib/types";
 
 export function SettingsForm({ settings }: { settings: SettingsPayload }) {
@@ -23,6 +24,9 @@ export function SettingsForm({ settings }: { settings: SettingsPayload }) {
   );
   const [autoTriageOnNew, setAutoTriageOnNew] = useState(
     settings.auto_triage_on_new_briefs,
+  );
+  const [aiProvider, setAiProvider] = useState<"anthropic" | "openai">(
+    settings.ai_provider,
   );
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -38,9 +42,11 @@ export function SettingsForm({ settings }: { settings: SettingsPayload }) {
       shell_pool_size_hint: settings.shell_pool_size_hint,
       auto_triage_enabled: autoTriageEnabled,
       auto_triage_on_new_briefs: autoTriageOnNew,
+      ai_provider: aiProvider,
     };
     startTransition(async () => {
-      await updateSettings(next);
+      const token = await getSessionToken();
+      await updateSettings(next, token ?? undefined);
       setSavedAt(new Date().toLocaleTimeString());
     });
   }
@@ -74,6 +80,44 @@ export function SettingsForm({ settings }: { settings: SettingsPayload }) {
             />
             Schedule auto-triage on new briefs
           </label>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>AI provider</CardTitle>
+          <CardDescription>
+            Which LLM provider auto-triage uses to generate Briefs.
+            Make sure the corresponding API key is set in Supabase secrets.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="radio"
+                name="ai_provider"
+                value="openai"
+                checked={aiProvider === "openai"}
+                onChange={() => setAiProvider("openai")}
+                className="h-4 w-4"
+              />
+              OpenAI
+              <span className="text-xs text-muted-foreground">(OPENAI_API_KEY)</span>
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="radio"
+                name="ai_provider"
+                value="anthropic"
+                checked={aiProvider === "anthropic"}
+                onChange={() => setAiProvider("anthropic")}
+                className="h-4 w-4"
+              />
+              Anthropic
+              <span className="text-xs text-muted-foreground">(ANTHROPIC_API_KEY)</span>
+            </label>
+          </div>
         </CardContent>
       </Card>
 

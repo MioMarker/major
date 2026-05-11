@@ -28,7 +28,7 @@
 // edge-function timeout. Contact Supabase support to extend if needed.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import Anthropic from "npm:@anthropic-ai/sdk";
+import OpenAI from "npm:openai";
 import { handleOptions } from "../_shared/cors.ts";
 import { authenticate, type MajorClient } from "../_shared/auth.ts";
 import { errorResponse, jsonResponse } from "../_shared/response.ts";
@@ -65,6 +65,7 @@ interface Session {
 interface PathBlockerConfig {
   protected_globs: string[];
   mass_rerank_threshold: number;
+  ai_provider: "anthropic" | "openai";
 }
 
 interface TriageDecision {
@@ -124,19 +125,40 @@ async function fetchIssueBody(
   }
 }
 
-async function callClaude(
+// Resolves the AI client using the provider chosen in Settings.
+// AUTO_TRIAGE_MODEL env var overrides the model name (optional).
+function resolveAIClient(provider: "anthropic" | "openai"): { client: OpenAI; model: string } {
+  const modelOverride = Deno.env.get("AUTO_TRIAGE_MODEL");
+
+  if (provider === "anthropic") {
+    const key = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!key) throw new Error("ANTHROPIC_API_KEY is not set in Supabase secrets");
+    return {
+      client: new OpenAI({
+        apiKey: key,
+        baseURL: "https://api.anthropic.com/v1/",
+        defaultHeaders: { "anthropic-version": "2023-06-01" },
+      }),
+      model: modelOverride ?? "claude-sonnet-4-6",
+    };
+  }
+
+  const key = Deno.env.get("OPENAI_API_KEY");
+  if (!key) throw new Error("OPENAI_API_KEY is not set in Supabase secrets");
+  return {
+    client: new OpenAI({ apiKey: key }),
+    model: modelOverride ?? "gpt-4o",
+  };
+}
+
+async function callLLM(
   title: string,
   body: string | null,
   repo: string | null,
   transcript: TranscriptMessage[],
+  provider: "anthropic" | "openai",
 ): Promise<TriageDecision> {
-  const oauthToken = Deno.env.get("CLAUDE_CODE_OAUTH_TOKEN");
-  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-  if (!oauthToken && !apiKey) throw new Error("No Anthropic auth configured — set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY");
-
-  const anthropic = oauthToken
-    ? new Anthropic({ authToken: oauthToken, maxRetries: 4 })
-    : new Anthropic({ apiKey: apiKey!, maxRetries: 4 });
+  const { client: openai, model } = resolveAIClient(provider);
 
   const contextParts: string[] = [];
   if (repo) contextParts.push(`Repository: ${repo}`);
@@ -149,12 +171,13 @@ async function callClaude(
     contextParts.push(`\nSession transcript:\n${formatted}`);
   }
 
-  const userMessage = contextParts.join("\n");
-
-  const response = await anthropic.messages.create({
-    model: Deno.env.get("AUTO_TRIAGE_MODEL") ?? "claude-sonnet-4-6",
+  const response = await openai.chat.completions.create({
+    model,
     max_tokens: 1500,
-    system: `You are Major's auto-triage AI. Major is a software orchestration system where AI coding agents implement work items called Briefs. Your job is to read a GitHub issue and produce a Brief that's ready for an agent to implement.
+    messages: [
+      {
+        role: "system",
+        content: `You are Major's auto-triage AI. Major is a software orchestration system where AI coding agents implement work items called Briefs. Your job is to read a GitHub issue and produce a Brief that's ready for an agent to implement.
 
 ## Bias toward action
 - Always produce a ready-for-agent Brief. Never refuse or ask for clarification.
@@ -195,51 +218,61 @@ Research this issue and make your best attempt at a solution. Document any guess
 ## What to investigate
 - <key question or unknown>
 - <another unknown>`,
+      },
+      { role: "user", content: contextParts.join("\n") },
+    ],
     tools: [
       {
-        name: "produce_brief",
-        description:
-          "Produce a Brief for this issue. Always call this tool — never respond in plain text.",
-        input_schema: {
-          type: "object" as const,
-          properties: {
-            summary: {
-              type: "string",
-              description: "One sentence (max 120 chars) describing the decision",
+        type: "function",
+        function: {
+          name: "produce_brief",
+          description: "Produce a Brief for this issue. Always call this tool — never respond in plain text.",
+          parameters: {
+            type: "object",
+            properties: {
+              summary: {
+                type: "string",
+                description: "One sentence (max 120 chars) describing the decision",
+              },
+              prd: {
+                type: "string",
+                description: "Full Markdown PRD content",
+              },
+              classifications: {
+                type: "array",
+                items: { type: "string" },
+                description: "Array of classifications: bug-fix, feature, refactor, and/or docs",
+              },
+              expected_paths: {
+                type: "array",
+                items: { type: "string" },
+                description: "File paths this Brief will likely touch",
+              },
+              is_spike: {
+                type: "boolean",
+                description: "true if this is a research spike",
+              },
             },
-            prd: {
-              type: "string",
-              description: "Full Markdown PRD content",
-            },
-            classifications: {
-              type: "array",
-              items: { type: "string" },
-              description: "Array of classifications: bug-fix, feature, refactor, and/or docs",
-            },
-            expected_paths: {
-              type: "array",
-              items: { type: "string" },
-              description: "File paths this Brief will likely touch",
-            },
-            is_spike: {
-              type: "boolean",
-              description: "true if this is a research spike",
-            },
+            required: ["summary", "prd", "classifications", "expected_paths", "is_spike"],
           },
-          required: ["summary", "prd", "classifications", "expected_paths", "is_spike"],
         },
       },
     ],
-    tool_choice: { type: "tool", name: "produce_brief" },
-    messages: [{ role: "user", content: userMessage }],
+    tool_choice: "required",
   });
 
-  const toolUse = response.content.find((b) => b.type === "tool_use");
-  if (!toolUse || toolUse.type !== "tool_use") {
-    throw new Error("Claude did not call produce_brief");
+  const toolCall = response.choices[0]?.message?.tool_calls?.[0];
+  if (!toolCall || toolCall.function.name !== "produce_brief") {
+    const finishReason = response.choices[0]?.finish_reason;
+    const contentSnippet = (() => {
+      const c = response.choices[0]?.message?.content;
+      return typeof c === "string" ? c.slice(0, 200) : JSON.stringify(c).slice(0, 200);
+    })();
+    console.error("[major-auto-triage-sessions] tool not called:", { finishReason, contentSnippet });
+    throw new Error(`LLM did not call produce_brief (finish_reason=${finishReason}): ${contentSnippet}`);
   }
 
-  const input = toolUse.input as Record<string, unknown>;
+  const input = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
   return {
     summary: typeof input.summary === "string" ? input.summary : "Auto-triaged",
     prd: typeof input.prd === "string" ? input.prd : `# ${title}\n\nAuto-generated spike.`,
@@ -261,6 +294,7 @@ async function processSession(
   pbConfig: PathBlockerConfig,
   githubToken: string | undefined,
   actor: string,
+  provider: "anthropic" | "openai",
 ): Promise<SessionResult> {
   const title = getSessionTitle(session);
 
@@ -290,12 +324,13 @@ async function processSession(
       };
     }
 
-    // ── 2. Call Claude ──────────────────────────────────────────────
-    const decision = await callClaude(
+    // ── 2. Call LLM ─────────────────────────────────────────────────
+    const decision = await callLLM(
       title,
       issueBody,
       repo,
       session.transcript,
+      provider,
     );
 
     // ── 3. Path-blocker check ───────────────────────────────────────
@@ -447,16 +482,18 @@ Deno.serve(async (req) => {
 
     const githubToken = Deno.env.get("GITHUB_APP_TOKEN");
 
-    // Fetch path-blocker config (required for blocker check).
+    // Fetch path-blocker config (required for blocker check + provider selection).
     const { data: pbConfig, error: pbErr } = await auth.client
       .from("path_blocker_config")
-      .select("protected_globs, mass_rerank_threshold")
+      .select("protected_globs, mass_rerank_threshold, ai_provider")
       .eq("id", 1)
       .single();
 
     if (pbErr || !pbConfig) {
       return errorResponse("path_blocker_config missing", 500);
     }
+
+    const provider = (pbConfig.ai_provider as string) === "anthropic" ? "anthropic" : "openai";
 
     // Fetch all open sessions.
     const { data: sessions, error: sessErr } = await auth.client
@@ -482,6 +519,7 @@ Deno.serve(async (req) => {
         pbConfig as PathBlockerConfig,
         githubToken,
         auth.actor,
+        provider,
       );
       results.push(result);
     }

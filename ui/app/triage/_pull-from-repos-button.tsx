@@ -139,8 +139,7 @@ export function PullFromReposButton() {
                       colSpan={6}
                       className="py-6 text-center text-sm text-muted-foreground"
                     >
-                      No issues labeled <code>needs-triage</code> or{" "}
-                      <code>major:triage</code> found across registered repos.
+                      No issues labeled <code>needs-triage</code> found across registered repos.
                     </TableCell>
                   </TableRow>
                 )}

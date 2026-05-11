@@ -144,7 +144,7 @@ export async function listExternalIssues(
         repo: "MioMarker/healix",
         number: 7,
         title: "Onboarding flow skips permissions step on Android 14",
-        labels: ["major:triage"],
+        labels: ["needs-triage"],
         created_at: new Date(Date.now() - 25 * 3_600_000).toISOString(),
         url: "https://github.com/MioMarker/healix/issues/7",
       },

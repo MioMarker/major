@@ -19,6 +19,7 @@ const UpdateSettingsRequest = z.object({
   shell_pool_size_hint: z.number().int().min(0),
   auto_triage_enabled: z.boolean(),
   auto_triage_on_new_briefs: z.boolean(),
+  ai_provider: z.enum(["anthropic", "openai"]).default("openai"),
 });
 
 Deno.serve(async (req) => {
@@ -42,12 +43,13 @@ Deno.serve(async (req) => {
         shell_pool_size_hint: parsed.data.shell_pool_size_hint,
         auto_triage_enabled: parsed.data.auto_triage_enabled,
         auto_triage_on_new_briefs: parsed.data.auto_triage_on_new_briefs,
+        ai_provider: parsed.data.ai_provider,
         updated_at: new Date().toISOString(),
         updated_by: auth.actor,
       })
       .eq("id", 1)
       .select(
-        "protected_globs, mass_rerank_threshold, shell_pool_size_hint, auto_triage_enabled, auto_triage_on_new_briefs",
+        "protected_globs, mass_rerank_threshold, shell_pool_size_hint, auto_triage_enabled, auto_triage_on_new_briefs, ai_provider",
       )
       .single();
 
@@ -65,6 +67,7 @@ Deno.serve(async (req) => {
       shell_pool_size_hint: data.shell_pool_size_hint,
       auto_triage_enabled: data.auto_triage_enabled,
       auto_triage_on_new_briefs: data.auto_triage_on_new_briefs,
+      ai_provider: data.ai_provider ?? "openai",
     });
   } catch (err) {
     console.error("[major-update-settings]", err);

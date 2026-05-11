@@ -3,9 +3,9 @@
 // GET /major-list-external-issues
 //   200: Array<{ repo, number, title, labels, created_at, url }>
 //
-// For each registered repo, fetches GitHub issues labeled `needs-triage` or
-// `major:triage`. Deduplicates by (repo, number), skipping any that already
-// have a triage session whose trigger_payload matches.
+// For each registered repo, fetches GitHub issues labeled `needs-triage`.
+// Deduplicates by (repo, number), skipping any that already have a triage
+// session whose trigger_payload matches.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleOptions } from "../_shared/cors.ts";
@@ -19,7 +19,7 @@ const REGISTERED_REPOS = [
 ] as const;
 
 const GITHUB_API = "https://api.github.com";
-const LABELS = ["needs-triage", "major:triage"];
+const LABELS = ["needs-triage"];
 
 type GithubIssue = {
   number: number;

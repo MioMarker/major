@@ -35,7 +35,7 @@ If `major-deep-dive` skill is available, run it.
 
 What is *not* yet live:
 
-- The inbound trigger that turns `issues.opened`-with-`major:triage`-label into a Triage Session (ADR 010).
+- The inbound trigger that turns `issues.opened`-with-`needs-triage`-label into a Triage Session (ADR 010).
 - The outbound resolution comment + symmetric `wontfix` issue close (ADR 011).
 - The auto-retry below budget + Repair Tachikoma path (ADR 014).
 
@@ -50,7 +50,7 @@ The plan's "Bottom line" still reads "execution loop is solid; intake side is ma
 There is one bootstrap dependency:
 
 1. **Issue #1 below (ADR 010 implementation) MUST land first**, manually triaged via the Major UI by the operator, because the auto-ingest channel doesn't exist until it does.
-2. After Issue #1 deploys, all subsequent issues can be opened with the `major:triage` label and flow through inbound Triage automatically.
+2. After Issue #1 deploys, all subsequent issues can be opened with the `needs-triage` label and flow through inbound Triage automatically.
 
 If Issue #1 fails to land for any reason, the operator continues triaging manually via UI for the remaining issues. The plan still completes; the user-friction cost is higher.
 
@@ -68,7 +68,7 @@ Across the whole sequence:
 2. **Apply the schema migration once** for Issue #5 (Repair budget). Command in the runbook §1.2. ~30 seconds with the password from 1Password.
 3. **Restart the Shell containers** after Issues touching Shell code merge. The deploy-shell pattern is in `runbook.md` §1.7; the agent can also restart them via Docker if granted permission.
 4. **Deploy edge functions** after Issues touching `supabase/functions/` merge: `npx -y supabase functions deploy <name>`. The agent can do this if granted.
-5. **Apply each issue's `major:triage` label** on creation (except Issue #1 which has no inbound channel yet — needs manual UI triage).
+5. **Apply each issue's `needs-triage` label** on creation (except Issue #1 which has no inbound channel yet — needs manual UI triage).
 
 Total operator time: ~15 minutes spread across the plan.
 
@@ -76,7 +76,7 @@ Total operator time: ~15 minutes spread across the plan.
 
 ## Issues
 
-Each entry below is the seed for a Brief PRD. `/to-issues` should produce one GitHub issue per entry, labeled `major:triage`, against `MioMarker/major`. The Triage Tachikoma will then produce the structured Brief.
+Each entry below is the seed for a Brief PRD. `/to-issues` should produce one GitHub issue per entry, labeled `needs-triage`, against `MioMarker/major`. The Triage Tachikoma will then produce the structured Brief.
 
 ### Issue #1 — Inbound: implement ADR 010 (`major-github-webhook` `handleIssue` + `trigger_payload` plumbing)
 
@@ -89,7 +89,7 @@ Each entry below is the seed for a Brief PRD. `/to-issues` should produce one Gi
 
 **Acceptance criteria.**
 1. `major-github-webhook/index.ts` adds a `handleIssue(client, payload, delivery)` branch on `X-GitHub-Event: issues`. The handler:
-   - Returns early unless `(action === "opened" && labels include "major:triage") || (action === "labeled" && label.name === "major:triage" && issue.state === "open")`.
+   - Returns early unless `(action === "opened" && labels include "needs-triage") || (action === "labeled" && label.name === "needs-triage" && issue.state === "open")`.
    - Returns early unless `sender.type === "User"`.
    - Returns early unless `repository.full_name ∈ {"MioMarker/major","MioMarker/healthbite","MioMarker/healix"}`.
    - Checks `major.triage_sessions` for an existing non-finalized Session keyed on `(trigger_payload->>'source_issue_repo', (trigger_payload->>'source_issue_number')::int)`. Skips if found.
@@ -100,7 +100,7 @@ Each entry below is the seed for a Brief PRD. `/to-issues` should produce one Gi
    - opened-without-label → skips
    - opened-with-bot-sender → skips
    - opened-with-disallowed-repo → skips
-   - labeled-with-`major:triage`-on-open-issue → triggers
+   - labeled-with-`needs-triage`-on-open-issue → triggers
    - labeled-with-different-label → skips
    - opened-twice-same-issue → second call is no-op (idempotency)
    - issue closed → skips
@@ -128,7 +128,7 @@ Each entry below is the seed for a Brief PRD. `/to-issues` should produce one Gi
 - `docs/runbook.md` (adds a "Inbound trigger smoke test" section)
 
 **Acceptance criteria.**
-1. After Issue #1 is deployed, the operator labels a test issue on `MioMarker/major` with `major:triage`.
+1. After Issue #1 is deployed, the operator labels a test issue on `MioMarker/major` with `needs-triage`.
 2. Within ~60 seconds, a `triage_sessions` row exists with `trigger_payload.source_issue_repo` populated.
 3. The Auto Triage Run starts (records appear in `runs` with `purpose='triage'`).
 4. The Triage Tachikoma produces a Change Set.
@@ -356,7 +356,7 @@ Each entry below is the seed for a Brief PRD. `/to-issues` should produce one Gi
 - `CLAUDE.md`
 
 **Acceptance criteria.**
-1. `runbook.md` gains a "Inbound issue trigger" section explaining the `major:triage` label workflow (writes a brief operator guide).
+1. `runbook.md` gains a "Inbound issue trigger" section explaining the `needs-triage` label workflow (writes a brief operator guide).
 2. `runbook.md` gains a "Retry budget" section explaining `briefs.max_attempts`, the auto-retry cap, and how the human-override Re-arm-as-Repair works.
 3. `failure-modes.md` §18 gains a sub-case for the wontfix-close behavior (issue closes with `state_reason: "not_planned"`).
 4. `failure-modes.md` adds a new entry for "Resolution comment failed but close succeeded" (and inverse) — the helper from Issue #3 surfaces these cases.
@@ -388,7 +388,7 @@ Total: ~1,500–1,800 LoC across ~9 Briefs.
 ### Done condition
 
 The plan is complete when:
-1. A GitHub issue opened on a watched repo with the `major:triage` label produces a Brief → Run → PR → merge → `done` flow with zero manual SQL or curl.
+1. A GitHub issue opened on a watched repo with the `needs-triage` label produces a Brief → Run → PR → merge → `done` flow with zero manual SQL or curl.
 2. The resolution comment posts to the source issue on `done` and `wontfix`, and the issue closes in both cases.
 3. A Brief whose first Run fails auto-retries below budget; above budget it parks at `ready-for-human` with the Re-arm-as-Repair button available.
 4. Docs/runbook reflect all of the above.

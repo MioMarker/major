@@ -78,7 +78,7 @@ For each repo Major drives — `MioMarker/healthbite`, `MioMarker/healix`, **and
 2. Payload URL: `https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1/major-github-webhook`
 3. Content type: `application/json`.
 4. Secret: same value as `GITHUB_WEBHOOK_SECRET` from step 1.3.
-5. Events: `Pull requests`, `Check runs`, `Pushes`, `Issues`. (`Issues` events trigger Triage Session creation per ADR 010 when an issue is labeled `major:triage`.)
+5. Events: `Pull requests`, `Check runs`, `Pushes`, `Issues`. (`Issues` events trigger Triage Session creation per ADR 010 when an issue is labeled `needs-triage`.)
 6. Active: yes.
 
 `MioMarker/major` is on the list because Major drives PRs against itself for self-improving Briefs (doc edits, ADR follow-ups, internal tooling). Without the webhook registered there, the ADR 007 auto-close handler never sees the merge and the Brief stays stuck at `ready-for-review`. (This was caught during the first end-to-end dogfood of the auto-close webhook — see Brief 12 / PR #39, 2026-05-10.)
@@ -222,24 +222,24 @@ Telemetry Records live in `major.telemetry_records` and are queried similarly. E
 
 ### 2.5 Inbound issue trigger
 
-When a human (or automation) applies the `major:triage` label to a GitHub issue in a driven repo, the `major-github-webhook` function intercepts the `issues.labeled` event, creates a Triage Session against that issue's content, runs auto-triage, and produces a Draft Brief. If the Draft Brief is accepted, it is queued at `ready-for-agent`.
+When a human (or automation) applies the `needs-triage` label to a GitHub issue in a driven repo, the `major-github-webhook` function intercepts the `issues.labeled` event, creates a Triage Session against that issue's content, runs auto-triage, and produces a Draft Brief. If the Draft Brief is accepted, it is queued at `ready-for-agent`.
 
 **Operator guide.**
 
-1. Apply the `major:triage` label to the issue in GitHub. The label must match the configured name exactly (`major:triage`); any casing mismatch silently drops the event.
-2. Within a few seconds, expect: a comment posted on the issue confirming intake, and the label transitioning from `major:triage` to `major:triaged` (or `major:triage-failed` on error).
+1. Apply the `needs-triage` label to the issue in GitHub. The label must match the configured name exactly (`needs-triage`); any casing mismatch silently drops the event.
+2. Within a few seconds, expect: a comment posted on the issue confirming intake, and the label transitioning from `needs-triage` to `needs-triaged` (or `needs-triage-failed` on error).
 3. A new Brief appears in the Briefs View at `draft` or `ready-for-agent` depending on the auto-triage outcome.
 
 **Nothing happened — troubleshooting.**
 
 - Check the webhook delivery log: GitHub repo → Settings → Webhooks → Recent Deliveries. Confirm an `issues` event with `action=labeled` was delivered and returned `2xx`.
-- Confirm the label name in the delivery payload matches `major:triage` exactly.
+- Confirm the label name in the delivery payload matches `needs-triage` exactly.
 - Check Supabase function logs for `[MajorGithubWebhook]` error lines around the delivery timestamp.
 - If the delivery failed (non-2xx), use "Redeliver" in GitHub's webhook UI to replay it without re-labelling.
 
 ### 2.6 Inbound trigger smoke test
 
-Use this procedure to confirm that the end-to-end inbound pipeline — GitHub issue → `major:triage` label → Triage Session → auto-triage → Brief — is functioning. Run it after initial setup, after webhook re-registration, or any time you suspect the inbound path is broken.
+Use this procedure to confirm that the end-to-end inbound pipeline — GitHub issue → `needs-triage` label → Triage Session → auto-triage → Brief — is functioning. Run it after initial setup, after webhook re-registration, or any time you suspect the inbound path is broken.
 
 **Prerequisites.**
 
@@ -247,7 +247,7 @@ Use this procedure to confirm that the end-to-end inbound pipeline — GitHub is
 - `GITHUB_WEBHOOK_SECRET` is set in Supabase secrets (§1.3).
 - A test GitHub issue is open on one of the watched repos (`MioMarker/major`, `MioMarker/healthbite`, or `MioMarker/healix`). Create one now if needed; the title and body do not matter for smoke purposes.
 
-**Trigger the pipeline.** Add the `major:triage` label to the test issue (either at creation time or via the Labels panel). GitHub fires an `issues.labeled` event to the webhook endpoint.
+**Trigger the pipeline.** Add the `needs-triage` label to the test issue (either at creation time or via the Labels panel). GitHub fires an `issues.labeled` event to the webhook endpoint.
 
 ---
 
@@ -283,7 +283,7 @@ LIMIT 1;
 
 Expected: one row with `status = 'open'`, `initiator_actor = 'integration:github'`, and `trigger_payload` containing the issue's URL, title, body, and author login. Record the `id` as `<session_id>` for the remaining checks.
 
-If no row exists, the webhook handler's `handleIssue` path did not execute. Verify the label name is exactly `major:triage` (case-sensitive) and the issue's repo is in the watched allowlist.
+If no row exists, the webhook handler's `handleIssue` path did not execute. Verify the label name is exactly `needs-triage` (case-sensitive) and the issue's repo is in the watched allowlist.
 
 ---
 
