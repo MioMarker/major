@@ -120,7 +120,7 @@ Each entry below is the seed for a Brief PRD. `/to-issues` should produce one Gi
 
 ---
 
-### Issue #2 — Inbound verification: drop a synthetic Triage Session through the end-to-end flow
+### Issue #2 — Inbound verification: drop a synthetic Triage Session through the end-to-end flow ✓ (Brief 27 — closed)
 
 **Why.** ADR 010 implementation (Issue #1) is mechanical; the existing downstream (`major-finalize-triage-session`, `major-apply-change-set`, Triage Tachikoma) is presumed working but never exercised end-to-end with the new inbound trigger. This Brief verifies the pipeline.
 
