@@ -111,7 +111,7 @@ What's missing is the **trigger** (issue webhook → `major-create-triage-sessio
 - Extend `supabase/functions/major-github-webhook/index.ts` to handle `issues` events alongside the existing `pull_request` and `check_run` handlers.
 - On `issues.opened` (and `issues.edited` from a labeled state, TBD), POST to `major-create-triage-session` with the issue body as the initial Brief content seed and `source_issue_repo` + `source_issue_number` populated.
 - This intersects with **issue #52** — webhook regex tightening. Decide order: fix #52 first (smaller, lower risk) so the issue handler benefits from the tightened parser.
-- Memory says **ADR 010** is planned but not written — write it in this sub-phase. It defines what fields seed the Triage Session, which issue events trigger, and how labels gate (e.g. `major:triage` label opt-in).
+- Memory says **ADR 010** is planned but not written — write it in this sub-phase. It defines what fields seed the Triage Session, which issue events trigger, and how labels gate (e.g. `needs-triage` label opt-in).
 
 ### 3b — Triage Tachikoma execution
 
@@ -137,14 +137,14 @@ What's missing is the **trigger** (issue webhook → `major-create-triage-sessio
 
 **Decisions to confirm with the user before implementing.**
 
-1. **Opt-in vs opt-out.** Does every issue trigger Triage, or only labeled issues (`major:triage`)? Default recommendation: opt-in via label for v1; broaden after dogfooding.
+1. **Opt-in vs opt-out.** Does every issue trigger Triage, or only labeled issues (`needs-triage`)? Default recommendation: opt-in via label for v1; broaden after dogfooding.
 2. **Repo allowlist.** Which repos are watched? Just `MioMarker/major`, or also `MioMarker/healthbite` and `MioMarker/healix`? The webhook registration list per `runbook §1.6` (extended in PR #38) is the source of truth.
 3. **Issue authorship.** Is a human-authored issue the only triage source, or do agent-authored issues count (e.g. a Run that surfaces a follow-up)? Trust-boundary question.
 4. **Brief Content Revision authorship.** When Triage creates a Brief, the initial Content Revision's `author_actor` should be `agent:triage-tachikoma:<run_id>` not the issue's GitHub author — the agent wrote the Brief, not the human. Confirm.
 
 **Exit criteria.**
 
-- A test issue opened on `MioMarker/major` with the `major:triage` label results, within ~minute, in a Triage Session row → an Auto Triage Run → a Change Set → one or more Briefs in `ready-for-agent` (or `ready-for-triage` if the path-blocker queued for human).
+- A test issue opened on `MioMarker/major` with the `needs-triage` label results, within ~minute, in a Triage Session row → an Auto Triage Run → a Change Set → one or more Briefs in `ready-for-agent` (or `ready-for-triage` if the path-blocker queued for human).
 - `/triage/[sessionId]` shows the full lifecycle for that session.
 - ADR 010 + ADR 011 both written and accepted.
 - Brief 1's edge case ("work landed via different path") gets a clean disposition path — possibly a "supersedes" relationship rather than a manual override.

@@ -1,4 +1,4 @@
-# 010. Inbound GitHub issue → Triage Session (opt-in via `major:triage` label)
+# 010. Inbound GitHub issue → Triage Session (opt-in via `needs-triage` label)
 
 ## Status
 
@@ -27,7 +27,7 @@ The Triage Tachikoma then runs (Auto Triage Run, `purpose=triage`), produces a C
 
 #### Trigger gate
 
-1. **Opt-in via `major:triage` label (chosen).** Issues only trigger Triage when explicitly tagged with the label. Default OFF. The label is added either at issue creation (issue template can pre-set it) or later via `issues.labeled` events. Lowest blast radius for v1 dogfood — only issues the operator explicitly marks get Tachikoma turns spent on them, and noisy issues (low-effort, comment-thread debates) stay quiet by default. Aligns with the briefing's "Default recommendation: opt-in via label for v1; broaden after dogfooding."
+1. **Opt-in via `needs-triage` label (chosen).** Issues only trigger Triage when explicitly tagged with the label. Default OFF. The label is added either at issue creation (issue template can pre-set it) or later via `issues.labeled` events. Lowest blast radius for v1 dogfood — only issues the operator explicitly marks get Tachikoma turns spent on them, and noisy issues (low-effort, comment-thread debates) stay quiet by default. Aligns with the briefing's "Default recommendation: opt-in via label for v1; broaden after dogfooding."
 
 2. **Every newly opened issue triggers.** Maximum coverage. Rejected — noise risk is real. A typical week's issue volume on the dependent repos includes question threads, duplicate reports, and clarification requests that aren't real work-orders. Spending a Triage Tachikoma Run on each is wasteful and dilutes the signal of "this Brief is on the queue."
 
@@ -76,8 +76,8 @@ if (event === "issues") {
 
 `handleIssue` fires a Triage Session iff ALL of the following hold:
 
-1. `payload.action === "opened"` AND the issue's labels include `major:triage`, OR
-2. `payload.action === "labeled"` AND the just-added label is `major:triage` AND the issue is not in a terminal state (`payload.issue.state === "open"`).
+1. `payload.action === "opened"` AND the issue's labels include `needs-triage`, OR
+2. `payload.action === "labeled"` AND the just-added label is `needs-triage` AND the issue is not in a terminal state (`payload.issue.state === "open"`).
 
 Plus the universal gates:
 - The issue's `sender.type === "User"` (no bots).
@@ -85,7 +85,7 @@ Plus the universal gates:
 - No Triage Session already exists for this issue (idempotency — see below).
 
 Other actions (`closed`, `reopened`, `edited`, `unlabeled`, `assigned`, etc.) are explicitly ignored. Particularly:
-- `unlabeled` (removing `major:triage`) does NOT retract an in-flight Triage Session. Once seeded, the Session is durable; unlabeling is a "no longer want this triaged" signal we ignore in v1 (operators can reject the resulting Brief if they change their mind).
+- `unlabeled` (removing `needs-triage`) does NOT retract an in-flight Triage Session. Once seeded, the Session is durable; unlabeling is a "no longer want this triaged" signal we ignore in v1 (operators can reject the resulting Brief if they change their mind).
 - `edited` (issue body changed) does NOT update the in-flight Session. The Session captured the body at trigger time. If the body genuinely changes, the operator can manually create a new Content Revision via Triage Session UI.
 
 ### Seed payload
@@ -142,7 +142,7 @@ Event idempotency reuses the existing key shape: `deriveIdempotencyKey(null, "tr
 
 ### Issue template suggestion (operational, not normative)
 
-The Major repo's issue templates can pre-set the `major:triage` label so operators don't have to remember. This is a follow-on UX nicety, not part of the ADR. The label is the authority; how it gets onto the issue is operator choice.
+The Major repo's issue templates can pre-set the `needs-triage` label so operators don't have to remember. This is a follow-on UX nicety, not part of the ADR. The label is the authority; how it gets onto the issue is operator choice.
 
 ### What this ADR explicitly does not do
 
@@ -166,7 +166,7 @@ Reserved per the briefing for inbound. ADRs 012, 013, 014 already exist; this AD
 - **Reuses every downstream piece.** `major-create-triage-session`, `major-finalize-triage-session`, `major-apply-change-set`, path-blocker, Triage Tachikoma — all unchanged. The PR for this work is small: just the webhook handler extension + the `trigger_payload` plumbing on `major-create-triage-session`.
 - **Symmetric with ADR 007's outbound `source_issue_*` columns.** Inbound populates the same columns that outbound auto-close uses. The pair forms a clean correlation loop.
 - **Idempotent on redelivery.** Existing Event idempotency-key pattern covers the inbound surface; no new mechanism.
-- **Default-OFF is reversible.** If `major:triage` opt-in proves too high-friction, opening the gate (every issue triggers) is a one-line change. The opposite direction (gate down after wide-open noise) is more painful.
+- **Default-OFF is reversible.** If `needs-triage` opt-in proves too high-friction, opening the gate (every issue triggers) is a one-line change. The opposite direction (gate down after wide-open noise) is more painful.
 
 ### Negative
 
@@ -179,7 +179,7 @@ Reserved per the briefing for inbound. ADRs 012, 013, 014 already exist; this AD
 ### Follow-on work
 
 - **Implementation PR** (separate, per Phase 3a slicing): extend `major-github-webhook`'s `handleIssue`, amend `major-create-triage-session` to accept the `trigger_payload`, set the agent attribution in `major-apply-change-set` on `create-brief` ops, idempotency-key check on `triage_sessions`.
-- **Issue template**: `.github/ISSUE_TEMPLATE/triage.md` on each watched repo, pre-setting the `major:triage` label. Operational; not part of the implementation PR.
+- **Issue template**: `.github/ISSUE_TEMPLATE/triage.md` on each watched repo, pre-setting the `needs-triage` label. Operational; not part of the implementation PR.
 - **Webhook event registration**: confirm `Issues` is in the event list for the webhook on all three repos per `docs/runbook.md` §1.6. Add it if missing.
 - **Triage prompt amendment**: `shell/prompts/triage.md` already knows about `briefs.source_issue_*` (per the source_issue model). When the trigger payload arrives via `integration:github`, the prompt should also be aware of `source_issue_body_md` so it can include the issue body as the Brief Content seed without re-deriving it. Bump `TRIAGE_PROMPT_VERSION` per AGENTS.md hard rule #7.
 - **UI**: `/triage/[sessionId]` should render the source issue link prominently when present. Operators reading the Triage page want a one-click jump to the originating issue.

@@ -23,7 +23,7 @@ Deno.serve(async (req) => {
     const { data, error } = await auth.client
       .from("path_blocker_config")
       .select(
-        "protected_globs, mass_rerank_threshold, shell_pool_size_hint, auto_triage_enabled, auto_triage_on_new_briefs",
+        "protected_globs, mass_rerank_threshold, shell_pool_size_hint, auto_triage_enabled, auto_triage_on_new_briefs, ai_provider",
       )
       .eq("id", 1)
       .single();
@@ -42,6 +42,7 @@ Deno.serve(async (req) => {
       shell_pool_size_hint: data.shell_pool_size_hint,
       auto_triage_enabled: data.auto_triage_enabled,
       auto_triage_on_new_briefs: data.auto_triage_on_new_briefs,
+      ai_provider: data.ai_provider ?? "openai",
     });
   } catch (err) {
     console.error("[major-get-settings]", err);

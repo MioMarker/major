@@ -266,6 +266,7 @@ export interface SettingsPayload {
   shell_pool_size_hint: number;
   auto_triage_enabled: boolean;
   auto_triage_on_new_briefs: boolean;
+  ai_provider: "anthropic" | "openai";
 }
 
 export type ExternalIssue = {
