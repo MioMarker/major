@@ -21,6 +21,7 @@ const STATUSES: Array<BriefStatus | "all"> = [
   "agent-running",
   "ready-for-review",
   "ready-for-human",
+  "merge-blocked",
   "done",
   "wontfix",
 ];

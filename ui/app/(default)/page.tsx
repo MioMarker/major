@@ -10,13 +10,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { listBriefs } from "@/lib/api/briefs";
+import { listBriefs, listBriefsEligibleForMerge } from "@/lib/api/briefs";
 import { getServerAuthToken } from "@/lib/auth-server";
 import { formatRelativeAge } from "@/lib/utils";
 import type {
   BriefClassification,
   BriefStatus,
 } from "@/lib/types";
+import { MergeAllButton } from "@/components/briefs/MergeAllButton";
 import { BriefsFilters } from "./_filters";
 import { QuickStartButton } from "./_quick-start-button";
 import { DeleteBriefButton } from "./_delete-brief-button";
@@ -34,6 +35,7 @@ const STATUS_VALUES: BriefStatus[] = [
   "agent-running",
   "ready-for-review",
   "ready-for-human",
+  "merge-blocked",
   "done",
   "wontfix",
 ];
@@ -64,7 +66,10 @@ export default async function BriefsViewPage({ searchParams }: PageProps) {
     : undefined;
 
   const authToken = await getServerAuthToken();
-  const briefs = await listBriefs({ status, classification, authToken: authToken ?? undefined });
+  const [briefs, eligibleForMerge] = await Promise.all([
+    listBriefs({ status, classification, authToken: authToken ?? undefined }),
+    listBriefsEligibleForMerge(authToken ?? undefined),
+  ]);
 
   const activeCount = briefs.filter(
     (b) => b.status !== "done" && b.status !== "wontfix",
@@ -81,7 +86,10 @@ export default async function BriefsViewPage({ searchParams }: PageProps) {
               : `${briefs.length} brief${briefs.length !== 1 ? "s" : ""} · ${activeCount} active`}
           </p>
         </div>
-        <QuickStartButton />
+        <div className="flex items-center gap-2">
+          <MergeAllButton eligibleCount={eligibleForMerge.length} />
+          <QuickStartButton />
+        </div>
       </div>
       <BriefsFilters status={status} classification={classification} />
       <div className="mt-4 rounded-lg border bg-card">
