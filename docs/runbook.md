@@ -104,18 +104,20 @@ The Shell authenticates to Major's API via `Authorization: Bearer <SUPABASE_SERV
 
 The Shell registers itself in `major.shells` on boot, then enters the main loop.
 
-### 1.7.1 GitHub PAT scope
+### 1.7.1 GitHub PAT scope (`major-shell-bot`)
 
-The fine-grained PAT used for `GITHUB_TOKEN` (Shell) and the equivalent token used by `major-github-webhook` for outbound calls (`GITHUB_APP_TOKEN` — set via `supabase secrets set`) must grant the following on each dependent repo (`MioMarker/healthbite`, `MioMarker/healix`):
+Per `docs/adr/015-major-shell-bot-identity.md`, the Shell's `GITHUB_TOKEN` and the GitHub token used by `major-github-webhook` for outbound calls (`GITHUB_APP_TOKEN`) are both fine-grained PATs belonging to the **`major-shell-bot`** GitHub user account — not to any human dev. The bot has Write-role collaborator access on each driven repo and is intentionally absent from `.github/CODEOWNERS`.
+
+The PAT must grant the following on each of `MioMarker/major`, `MioMarker/healthbite`, and `MioMarker/healix`:
 
 | Permission | Used by | Why |
 |---|---|---|
 | `Contents: Write` | Shell | Push branches, create commits |
-| `Pull requests: Write` | Shell | Open / update PRs |
-| `Actions: Read` | Shell | Read CI status |
-| `Issues: Write` | `major-github-webhook` (ADR 007) | Close source GitHub issue + post linking comment when the PR-merge webhook fires for a Brief with `briefs.source_issue_*` populated |
+| `Pull requests: Write` | Shell | Open / update PRs, post review comments |
+| `Issues: Write` | Shell + `major-github-webhook` (ADR 007 / 011) | Close source GitHub issue + post linking comment when the PR-merge webhook fires for a Brief with `briefs.source_issue_*` populated |
+| `Actions: Read` | Shell | Read CI status (Mode 1 pre-flight per ADR 017) |
 
-Tokens have an expiration; rotation is part of the operator's monthly checklist. After rotation, update the Shell `.env` AND `npx -y supabase secrets set GITHUB_APP_TOKEN=<new-token>` so the webhook handler also picks up the new value.
+**Expiration: max 1 year** (GitHub's ceiling for fine-grained PATs). Store the PAT in 1Password under `major-shell-bot github PAT`. Rotation is part of the operator's monthly checklist (§ 2.5). After rotation, update the Shell `.env` AND `npx -y supabase secrets set GITHUB_TOKEN=<new-token>` so the webhook handler also picks up the new value, then restart any running Shells so they pick up the new env var.
 
 ---
 
@@ -217,6 +219,14 @@ WHERE type = 'run-started'
 ```
 
 Telemetry Records live in `major.telemetry_records` and are queried similarly. Events drive lifecycle; Telemetry is observation only.
+
+### 2.5 Monthly operator checklist
+
+Run on the first business day of each month:
+
+- Verify `major-shell-bot` PAT has not been revoked; rotate before expiration (per § 1.7.1).
+- Confirm Supabase service-role key and `GITHUB_WEBHOOK_SECRET` are still the values stored in 1Password.
+- Spot-check `major.telemetry_records` for unusual volumes of `github-rate-limited`, `eval-gate-signature-mismatch`, or `tachikoma-bash-observed (decision='denied')` records since the last check.
 
 ---
 
