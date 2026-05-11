@@ -17,15 +17,23 @@
 //                       check names against the latest run on the Brief.
 //   - push            — informational only; emits an Event we can use to
 //                       drive UI badges, never alters lifecycle status.
+//   - issues          — opened/labeled with `major:triage`; seeds a Triage
+//                       Session per ADR 010 (inbound GitHub issue →
+//                       Triage Session). See `handleIssue`.
 //
 // Auth: this endpoint authenticates by HMAC-SHA256 signature, NOT by
 // Supabase JWT. The function must be deployed with `verify_jwt = false`
 // (see functions/config.toml addendum in README.md).
+//
+// `Deno.serve` is wrapped in `if (import.meta.main)` so the test file can
+// `import { handleIssue } from "./index.ts"` without binding a network
+// port. Supabase invokes the function as the module entry point, so
+// `import.meta.main` is `true` in deployment.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleOptions } from "../_shared/cors.ts";
 import { errorResponse, jsonResponse } from "../_shared/response.ts";
-import { getAdminClient } from "../_shared/db.ts";
+import { getAdminClient, type MajorClient } from "../_shared/db.ts";
 import { verifyGithubSignature } from "../_shared/webhook.ts";
 import { deriveIdempotencyKey } from "../_shared/idempotency.ts";
 import { parseBriefIdFromBody } from "./parse-pr-receipt.ts";
@@ -38,46 +46,58 @@ const KNOWN_CHECK_NAMES = new Set([
   "major/review",
 ]);
 
-Deno.serve(async (req) => {
-  const preflight = handleOptions(req);
-  if (preflight) return preflight;
+// ADR 010: inbound trigger gate.
+const TRIAGE_LABEL = "major:triage";
+const WATCHED_REPOS = new Set([
+  "MioMarker/major",
+  "MioMarker/healthbite",
+  "MioMarker/healix",
+]);
 
-  if (req.method !== "POST") return errorResponse("Method not allowed", 405);
+if (import.meta.main) {
+  Deno.serve(async (req) => {
+    const preflight = handleOptions(req);
+    if (preflight) return preflight;
 
-  try {
-    const secret = Deno.env.get("GITHUB_WEBHOOK_SECRET");
-    if (!secret) return errorResponse("GITHUB_WEBHOOK_SECRET not configured", 500);
+    if (req.method !== "POST") return errorResponse("Method not allowed", 405);
 
-    const event = req.headers.get("X-GitHub-Event");
-    const delivery = req.headers.get("X-GitHub-Delivery") ?? "no-delivery-id";
-    const signature = req.headers.get("X-Hub-Signature-256");
+    try {
+      const secret = Deno.env.get("GITHUB_WEBHOOK_SECRET");
+      if (!secret) return errorResponse("GITHUB_WEBHOOK_SECRET not configured", 500);
 
-    // We need the raw body to verify the signature (and to JSON-parse).
-    const rawBody = await req.text();
-    const valid = await verifyGithubSignature(rawBody, signature, secret);
-    if (!valid) {
-      console.error("[major-github-webhook] signature invalid", { event, delivery });
-      return errorResponse("Invalid signature", 401);
+      const event = req.headers.get("X-GitHub-Event");
+      const delivery = req.headers.get("X-GitHub-Delivery") ?? "no-delivery-id";
+      const signature = req.headers.get("X-Hub-Signature-256");
+
+      // We need the raw body to verify the signature (and to JSON-parse).
+      const rawBody = await req.text();
+      const valid = await verifyGithubSignature(rawBody, signature, secret);
+      if (!valid) {
+        console.error("[major-github-webhook] signature invalid", { event, delivery });
+        return errorResponse("Invalid signature", 401);
+      }
+
+      const payload = JSON.parse(rawBody);
+      const client = getAdminClient();
+
+      if (event === "pull_request") {
+        await handlePullRequest(client, payload, delivery);
+      } else if (event === "check_run") {
+        await handleCheckRun(client, payload, delivery);
+      } else if (event === "push") {
+        await handlePush(client, payload, delivery);
+      } else if (event === "issues") {
+        await handleIssue(client, payload, delivery);
+      }
+      // Anything else → ack and move on.
+
+      return jsonResponse({ ok: true });
+    } catch (err) {
+      console.error("[major-github-webhook]", err);
+      return errorResponse(err instanceof Error ? err.message : "Server error", 500);
     }
-
-    const payload = JSON.parse(rawBody);
-    const client = getAdminClient();
-
-    if (event === "pull_request") {
-      await handlePullRequest(client, payload, delivery);
-    } else if (event === "check_run") {
-      await handleCheckRun(client, payload, delivery);
-    } else if (event === "push") {
-      await handlePush(client, payload, delivery);
-    }
-    // Anything else → ack and move on.
-
-    return jsonResponse({ ok: true });
-  } catch (err) {
-    console.error("[major-github-webhook]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
-  }
-});
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────
 // pull_request — derive the Brief id from the PR body's correlation receipt
@@ -405,6 +425,130 @@ async function handlePush(
       idempotency_key: deriveIdempotencyKey(
         brief.id,
         "git-push-observed",
+        "integration:github",
+        delivery,
+      ),
+    })
+    .select();
+}
+
+// ─────────────────────────────────────────────────────────────────
+// issues — ADR 010 inbound: seed a Triage Session iff the gate passes
+// ─────────────────────────────────────────────────────────────────
+// Gate (all must hold):
+//   - action === "opened" with `major:triage` label, OR action === "labeled"
+//     with the just-added label === "major:triage" on an open issue
+//   - sender.type === "User"
+//   - repository.full_name ∈ WATCHED_REPOS
+//   - no non-finalized Triage Session already exists for this issue (idempotency)
+//
+// On pass: insert a new `major.triage_sessions` row with the issue body
+// captured in `trigger_payload`, and emit a `triage-session-created`
+// Event with an idempotency key derived from the GitHub delivery id.
+//
+// On any redelivery (same delivery id), the Event UNIQUE(idempotency_key)
+// constraint absorbs the duplicate; the session-existence check absorbs
+// re-fires that arrive with a fresh delivery id but target the same issue.
+//
+// deno-lint-ignore no-explicit-any -- GitHub webhook payloads are JSON;
+// matches the existing `handlePullRequest` signature in this file.
+export async function handleIssue(
+  client: MajorClient,
+  payload: any,
+  delivery: string,
+): Promise<void> {
+  const action = payload?.action as string | undefined;
+  const issue = payload?.issue;
+  const sender = payload?.sender;
+  const repoFullName = payload?.repository?.full_name as string | undefined;
+
+  if (!action || !issue || !sender || !repoFullName) return;
+
+  // Universal gates first — cheapest checks, no DB hit.
+  if (sender.type !== "User") return;
+  if (!WATCHED_REPOS.has(repoFullName)) return;
+
+  // Action-specific trigger condition.
+  let shouldTrigger = false;
+  if (action === "opened") {
+    const labels = Array.isArray(issue.labels) ? issue.labels : [];
+    shouldTrigger = labels.some(
+      (l: { name?: string } | null | undefined) => l?.name === TRIAGE_LABEL,
+    );
+  } else if (action === "labeled") {
+    const addedLabel = payload?.label?.name as string | undefined;
+    shouldTrigger = addedLabel === TRIAGE_LABEL && issue.state === "open";
+  }
+  if (!shouldTrigger) return;
+
+  // Idempotency: a non-finalized (status='open') Triage Session keyed on
+  // (source_issue_repo, source_issue_number) blocks re-trigger. Finalized
+  // (status='closed') Sessions do not block — operator may re-trigger after
+  // rejecting the prior Session's Briefs.
+  const issueNumber = issue.number as number;
+  const { data: existingSession, error: lookupErr } = await client
+    .from("triage_sessions")
+    .select("id")
+    .eq("trigger_payload->>source_issue_repo", repoFullName)
+    .eq("trigger_payload->>source_issue_number", String(issueNumber))
+    .eq("status", "open")
+    .limit(1)
+    .maybeSingle();
+  if (lookupErr) {
+    console.error("[major-github-webhook] handleIssue lookup failed:", lookupErr);
+    return;
+  }
+  if (existingSession) {
+    console.log("[major-github-webhook] handleIssue: open Triage Session exists; skipping", {
+      repo: repoFullName,
+      issue_number: issueNumber,
+      session_id: existingSession.id,
+    });
+    return;
+  }
+
+  const triggerPayload = {
+    source_issue_repo: repoFullName,
+    source_issue_number: issueNumber,
+    source_issue_url: issue.html_url ?? null,
+    source_issue_author_login: issue.user?.login ?? null,
+    source_issue_title: issue.title ?? null,
+    source_issue_body_md: issue.body ?? null,
+    source_issue_created_at: issue.created_at ?? null,
+    github_delivery: delivery,
+  };
+
+  const { data: session, error: insertErr } = await client
+    .from("triage_sessions")
+    .insert({
+      initiator_actor: "integration:github",
+      status: "open",
+      transcript: [],
+      trigger_payload: triggerPayload,
+    })
+    .select("id")
+    .single();
+  if (insertErr) {
+    console.error("[major-github-webhook] handleIssue insert session:", insertErr);
+    return;
+  }
+
+  await client
+    .from("events")
+    .insert({
+      brief_id: null,
+      type: "triage-session-created",
+      actor: "integration:github",
+      payload: {
+        triage_session_id: session?.id ?? null,
+        entry_point: "integration:github",
+        source_issue_repo: repoFullName,
+        source_issue_number: issueNumber,
+        delivery,
+      },
+      idempotency_key: deriveIdempotencyKey(
+        null,
+        "triage-session-created",
         "integration:github",
         delivery,
       ),
