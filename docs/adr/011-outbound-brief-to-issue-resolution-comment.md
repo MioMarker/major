@@ -2,7 +2,7 @@
 
 ## Status
 
-`Proposed`
+`Proposed` — comment-author decision superseded in part by [ADR 015](./015-major-shell-bot-identity.md) (2026-05-11): outbound comments shift to the `major-shell-bot` identity once 015 ships. Trigger states, mid-lifecycle suppression, and comment-body shape are unchanged.
 
 Date: 2026-05-10
 
@@ -44,7 +44,7 @@ This ADR makes those four decisions and supersedes the comment portion of ADR 00
 
 1. **Existing `GITHUB_APP_TOKEN` (the same fine-grained PAT ADR 007 already uses) (chosen).** Maps to a specific GitHub account whose login appears as the comment author. Already configured per `docs/runbook.md` §1.7.1. No new auth surface, no new secret to rotate.
 
-2. **Dedicated bot account (`MAJOR_BOT_TOKEN`).** Cleaner attribution — comment author reads as "MajorBot says…" rather than a human contributor login. Rejected for v1; adds a token to rotate, an account to provision, a permissions matrix to maintain. The current account already works. A future ADR can swap it in if attribution clarity proves valuable.
+2. **Dedicated bot account (`MAJOR_BOT_TOKEN`).** Cleaner attribution — comment author reads as "MajorBot says…" rather than a human contributor login. Rejected for v1; adds a token to rotate, an account to provision, a permissions matrix to maintain. The current account already works. A future ADR can swap it in if attribution clarity proves valuable. *(Superseded by [ADR 015](./015-major-shell-bot-identity.md), 2026-05-11: Mode 1's authorship gate forces a bot identity for PR creation, which makes the rotation cost a sunk one. Outbound comments shift to the same `major-shell-bot` identity for consistency.)*
 
 #### Comment body
 
@@ -184,7 +184,7 @@ ADR 007's auto-close MECHANIC (the close-the-issue API call, the actor attributi
 ### What this ADR explicitly does not do
 
 - **Does not comment on mid-lifecycle transitions.** `ready-for-review`, `ready-for-human`, `agent-running` etc. don't fire comments. GitHub's native PR-issue cross-link covers `ready-for-review`; the others are operator-internal.
-- **Does not introduce a dedicated bot account.** Existing `GITHUB_APP_TOKEN` is the comment author. A future ADR can swap to a bot account if attribution clarity becomes valuable.
+- **Does not introduce a dedicated bot account.** Existing `GITHUB_APP_TOKEN` is the comment author. A future ADR can swap to a bot account if attribution clarity becomes valuable. *(Superseded by [ADR 015](./015-major-shell-bot-identity.md): comment authorship moves to `major-shell-bot`.)*
 - **Does not handle reopening.** If a closed issue is reopened on GitHub, no comment is posted. The Brief's terminal state still holds; the human can manually adjust if needed.
 - **Does not update an existing resolution comment if the Brief transitions twice** (e.g., `wontfix` → reverted to `ready-for-agent` by operator → `done`). The first comment stays; a second comment is posted (with the new resolution). The idempotency check is by marker presence so the second comment is structurally distinct.
 - **Does not block lifecycle transitions on comment failures.** Same posture as ADR 007: comment failures are best-effort, logged via Telemetry, do not abort the Brief transition.
@@ -224,7 +224,7 @@ Reserved per the briefing for outbound. This ADR takes `011` to honor the briefi
 
 - **Comment thread crowding becomes a real complaint.** Trim the comment template; consider per-repo settings.
 - **`wontfix` closing the issue produces operator surprise.** Add a per-Brief override (`briefs.close_source_issue_on_wontfix = false`) or revisit the default.
-- **A bot account becomes worth the maintenance cost** (attribution clarity, audit trail). New ADR replaces the `GITHUB_APP_TOKEN` author with a dedicated bot identity.
+- **A bot account becomes worth the maintenance cost** (attribution clarity, audit trail). New ADR replaces the `GITHUB_APP_TOKEN` author with a dedicated bot identity. *(Resolved by [ADR 015](./015-major-shell-bot-identity.md): the trigger here was Mode 1's PR-authorship gate, not the attribution-clarity argument originally anticipated.)*
 - **Multi-Brief-from-one-issue surfaces.** When one issue produces N Briefs, deciding "the issue is fully resolved" gets policy work — first Brief closes? last Brief closes? all-terminal? This ADR assumes 1:1 per ADR 007's v1 model. Multi-Brief reconciliation is a v2 question.
 - **GitHub timeline native cross-link gains the verification info natively.** Unlikely but possible; would make the verification block in the comment redundant.
 

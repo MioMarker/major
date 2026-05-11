@@ -11,7 +11,7 @@
 export const IMPLEMENTER_PROMPT_VERSION = "implementer@2026-05-10";
 export const REVIEWER_PROMPT_VERSION    = "reviewer@2026-05-10";
 export const PLANNER_PROMPT_VERSION     = "planner@2026-05-10";
-export const TRIAGE_PROMPT_VERSION      = "triage@2026-05-10";
+export const TRIAGE_PROMPT_VERSION      = "triage@2026-05-11";
 export const REPAIR_PROMPT_VERSION      = "repair@2026-05-10";
 
 // Map a role to its version constant. Used by tachikoma.ts so callers can pass
