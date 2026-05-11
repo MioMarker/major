@@ -157,7 +157,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
                 disabled={isApplying || isClosed}
                 onClick={handleApply}
               >
-                {isApplying ? "Submitting…" : "Submit →"}
+                {isApplying ? "Finalizing…" : "Finalize session"}
               </Button>
             </div>
           </div>
