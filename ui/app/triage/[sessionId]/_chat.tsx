@@ -4,6 +4,14 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -33,6 +41,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
     useState<{ id: number; needs_human_apply: boolean } | null>(null);
   const [createdIssue, setCreatedIssue] =
     useState<{ url: string; number: number } | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [isSending, startSend] = useTransition();
   const [isApplying, startApply] = useTransition();
 
@@ -160,10 +169,34 @@ export function TriageChat({ session }: { session: TriageSession }) {
               <Button
                 size="sm"
                 disabled={isApplying || isClosed}
-                onClick={handleApply}
+                onClick={() => setShowConfirm(true)}
               >
                 {isApplying ? "Finalizing…" : "Finalize session"}
               </Button>
+              <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Finalize this triage session?</DialogTitle>
+                    <DialogDescription>
+                      The conversation will close and a Change Set will be queued for review. This
+                      cannot be undone.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setShowConfirm(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setShowConfirm(false);
+                        handleApply();
+                      }}
+                    >
+                      Finalize session
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
           </div>
           {pendingChangeSet && (
