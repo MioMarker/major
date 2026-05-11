@@ -218,6 +218,108 @@ WHERE type = 'run-started'
 
 Telemetry Records live in `major.telemetry_records` and are queried similarly. Events drive lifecycle; Telemetry is observation only.
 
+### 2.5 Inbound trigger smoke test
+
+**Precondition:** Issue #1 (GH #65, ADR 010 implementation) must be merged and all edge functions deployed before running this procedure. If unsure:
+
+```bash
+npx -y supabase functions deploy major-github-webhook major-create-triage-session
+```
+
+This procedure verifies the full inbound pipeline: GitHub label → Triage Session → Auto Triage Run → Change Set → Brief. Run it after each deploy of the inbound webhook handler.
+
+**Step 1 — Label a test issue (manual)**
+
+Create or use an existing open issue on `MioMarker/major` and apply the `major:triage` label. This is the trigger event; no SQL is needed for this step.
+
+**Step 2 — Triage Session created (expect within 60 s)**
+
+```sql
+SELECT id, trigger_payload
+FROM major.triage_sessions
+WHERE trigger_payload->>'source_issue_repo' IS NOT NULL
+ORDER BY created_at DESC
+LIMIT 1;
+```
+
+Expect: one row with `trigger_payload->>'source_issue_repo'` = `MioMarker/major` and `trigger_payload->>'source_issue_number'` matching the labeled issue.
+
+**Step 3 — Auto Triage Run started**
+
+```sql
+SELECT id, purpose, status
+FROM major.runs
+WHERE purpose = 'triage'
+ORDER BY created_at DESC
+LIMIT 1;
+```
+
+Expect: a row with `purpose = 'triage'` linked to the session from Step 2. The `status` will be `running` while in progress or a terminal value once complete.
+
+**Step 4 — Change Set produced**
+
+```sql
+SELECT id, run_id, status
+FROM major.change_sets
+WHERE run_id = '<run_id>'
+LIMIT 1;
+```
+
+Replace `<run_id>` with the `id` from Step 3. Expect: one row.
+
+**Step 5 — Path-blocker auto-applied the Change Set**
+
+```sql
+SELECT id, applied_at
+FROM major.change_sets
+WHERE id = '<change_set_id>'
+  AND applied_at IS NOT NULL;
+```
+
+Replace `<change_set_id>` with the `id` from Step 4. Expect: one row with `applied_at` populated. If `applied_at IS NULL`, the Change Set hit a protected-glob intersection — see failure path below.
+
+**Step 6 — Brief created with correct attribution**
+
+```sql
+SELECT b.id, b.source_issue_repo, b.source_issue_number, cr.author_actor
+FROM major.briefs b
+JOIN major.content_revisions cr ON cr.brief_id = b.id
+WHERE b.source_issue_repo IS NOT NULL
+ORDER BY b.created_at DESC
+LIMIT 1;
+```
+
+Expect: `source_issue_repo = 'MioMarker/major'`, `source_issue_number` matching the labeled issue, and `author_actor` matching `agent:triage-tachikoma:<run_id>`.
+
+**Failure path**
+
+If any check fails — no row returned, wrong value, `applied_at IS NULL` — the operator should:
+
+1. Park the Brief at `ready-for-human` via the UI, or via SQL:
+
+   ```sql
+   UPDATE major.briefs SET status = 'ready-for-human' WHERE id = '<brief_id>';
+
+   INSERT INTO major.events (brief_id, type, actor, idempotency_key, payload)
+   VALUES ('<brief_id>', 'status-transitioned', 'human:<your-user-id>',
+           'smoke-test-park-' || gen_random_uuid(),
+           jsonb_build_object('from', 'current-status', 'to', 'ready-for-human',
+                              'reason', 'smoke-test-check-N-failed'));
+   ```
+
+2. Emit a Telemetry Record naming the failed check:
+
+   ```sql
+   INSERT INTO major.telemetry_records (observation_type, brief_id, payload)
+   VALUES ('smoke-test-failure', '<brief_id>',
+           jsonb_build_object('failed_check', 'check-N',
+                              'detail', '<observed value vs expected value>'));
+   ```
+
+3. File a follow-up GitHub issue on `MioMarker/major` with title `Bug: inbound trigger smoke test — check N failed` and link the Telemetry Record id in the body.
+
+Do not attempt to fix the broken sub-component in this procedure. A failing check is the expected signal — the value is surfacing it cleanly so a targeted follow-up Brief can address the root cause.
+
 ---
 
 ## 3. Eval gate
