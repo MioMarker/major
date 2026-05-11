@@ -330,6 +330,10 @@ export type Brief = {
   sourceIssueRepo: string | null;
   sourceIssueNumber: number | null;
   currentRevisionId: number | null;
+  // Per-Brief auto-retry cap (ADR 014). Default 3; overridable per-Brief
+  // via Triage. The Shell's finalization compares the failed Run's
+  // attempt_number against this cap to decide auto-retry vs park.
+  maxAttempts: number;
   createdAt: Date | string;
   updatedAt: Date | string;
 };
@@ -395,6 +399,10 @@ export type Run = {
   // (run_id, 'tachikoma-stream-event', shell_id, sequence) idempotency key.
   // Never null — defaults to 0 on insert.
   tachikomaEventSequence: number;
+  // Which attempt this Run is, per Brief (ADR 014). Reset to 1 on a new
+  // Content Revision; otherwise prior Run's attempt_number + 1. Computed
+  // inside the Run Start Transaction in major-claim-brief.
+  attemptNumber: number;
 };
 
 export type ArtifactTypeContract = {

@@ -156,6 +156,7 @@ const _bf: Brief = {
   sourceIssueRepo: 'MioMarker/healthbite',
   sourceIssueNumber: 42,
   currentRevisionId: null,
+  maxAttempts: 3,
   createdAt: '2026-05-09T00:00:00Z',
   updatedAt: '2026-05-09T00:00:00Z',
 };
@@ -207,6 +208,15 @@ const _run: Run = {
   inspectedRunId: null,
   startedAt: '2026-05-09T00:00:00Z',
   endedAt: null,
+  numTurns: null,
+  durationMs: null,
+  finalText: null,
+  inputTokens: null,
+  outputTokens: null,
+  cacheReadTokens: null,
+  cacheWriteTokens: null,
+  tachikomaEventSequence: 0,
+  attemptNumber: 1,
 };
 const _logRef: RunLogArtifactRef = _run.logArtifactRefs[0];
 
@@ -337,6 +347,7 @@ const _tr: TelemetryRecord = {
   runId: 1,
   observationType: 'heartbeat-lapse',
   payload: { lastHeartbeatAt: '2026-05-09T00:00:00Z' },
+  idempotencyKey: null,
   createdAt: '2026-05-09T00:00:00Z',
 };
 
