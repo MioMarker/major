@@ -78,7 +78,7 @@ For each repo Major drives — `MioMarker/healthbite`, `MioMarker/healix`, **and
 2. Payload URL: `https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1/major-github-webhook`
 3. Content type: `application/json`.
 4. Secret: same value as `GITHUB_WEBHOOK_SECRET` from step 1.3.
-5. Events: `Pull requests`, `Check runs`, `Pushes`. (The handler ignores other events; subscribing to fewer events is the safer default.)
+5. Events: `Pull requests`, `Check runs`, `Pushes`, `Issues`. (`Issues` events trigger Triage Session creation per ADR 010 when an issue is labeled `major:triage`.)
 6. Active: yes.
 
 `MioMarker/major` is on the list because Major drives PRs against itself for self-improving Briefs (doc edits, ADR follow-ups, internal tooling). Without the webhook registered there, the ADR 007 auto-close handler never sees the merge and the Brief stays stuck at `ready-for-review`. (This was caught during the first end-to-end dogfood of the auto-close webhook — see Brief 12 / PR #39, 2026-05-10.)
