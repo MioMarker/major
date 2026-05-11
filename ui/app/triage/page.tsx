@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
-import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -12,7 +11,26 @@ import {
 import { listTriageSessions } from "@/lib/api/triage";
 import { getServerAuthToken } from "@/lib/auth-server";
 import { formatRelativeAge } from "@/lib/utils";
+import type { GithubIssueTrigger, TriageSession } from "@/lib/types";
+import { AutoTriageButton } from "./_auto-triage-button";
 import { NewTriageSessionButton } from "./_new-session-button";
+import { PullFromReposButton } from "./_pull-from-repos-button";
+import { DeleteSessionButton } from "./_delete-session-button";
+
+function isGithubTrigger(payload: TriageSession["trigger_payload"]): payload is GithubIssueTrigger {
+  return payload !== null && typeof payload === "object" && "source_issue_title" in payload;
+}
+
+function getSessionTitle(session: TriageSession): string {
+  if (isGithubTrigger(session.trigger_payload)) {
+    return session.trigger_payload.source_issue_title;
+  }
+  if (session.draft_prd) {
+    const match = session.draft_prd.match(/^#\s+(.+)/m);
+    if (match) return match[1];
+  }
+  return `Session #${session.id}`;
+}
 
 export default async function TriageListPage() {
   const authToken = await getServerAuthToken();
@@ -27,46 +45,59 @@ export default async function TriageListPage() {
             Durable, resumable conversations that propose Triage Change Sets.
           </p>
         </div>
-        <NewTriageSessionButton />
+        <div className="flex items-center gap-2">
+          <AutoTriageButton />
+          <PullFromReposButton />
+          <NewTriageSessionButton />
+        </div>
       </div>
       <div className="rounded-lg border bg-card">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[80px]">ID</TableHead>
-              <TableHead>Initiator</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Last activity</TableHead>
-              <TableHead>Messages</TableHead>
+              <TableHead>Issue</TableHead>
+              <TableHead className="w-[220px]">Repo</TableHead>
+              <TableHead className="w-[100px]">Status</TableHead>
+              <TableHead className="w-[140px]">Last activity</TableHead>
+              <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sessions.map((session) => (
-              <TableRow key={session.id}>
-                <TableCell className="font-mono text-xs">
-                  <Link
-                    href={`/triage/${session.id}`}
-                    className="text-primary underline-offset-4 hover:underline"
-                  >
-                    #{session.id}
-                  </Link>
-                </TableCell>
-                <TableCell className="font-mono text-xs">
-                  {session.initiator_actor}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={session.status === "open" ? "default" : "secondary"}>
-                    {session.status}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {formatRelativeAge(session.updated_at)} ago
-                </TableCell>
-                <TableCell className="text-xs">
-                  {session.transcript.length}
-                </TableCell>
-              </TableRow>
-            ))}
+            {sessions.map((session) => {
+              const trigger = isGithubTrigger(session.trigger_payload)
+                ? session.trigger_payload
+                : null;
+              return (
+                <TableRow key={session.id} className="group">
+                  <TableCell>
+                    <Link
+                      href={`/triage/${session.id}`}
+                      className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      {getSessionTitle(session)}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {trigger ? trigger.source_issue_repo : "—"}
+                  </TableCell>
+                  <TableCell>
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                      session.status === "open"
+                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                        : "bg-muted text-muted-foreground"
+                    }`}>
+                      {session.status}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {formatRelativeAge(session.updated_at)} ago
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <DeleteSessionButton sessionId={session.id} />
+                  </TableCell>
+                </TableRow>
+              );
+            })}
             {sessions.length === 0 && (
               <TableRow>
                 <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">

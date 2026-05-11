@@ -5,6 +5,7 @@ import {
   mockAgentReply,
 } from "@/lib/mock/triage";
 import type {
+  ExternalIssue,
   TriageChangeSet,
   TriageMessage,
   TriageSession,
@@ -46,6 +47,8 @@ export async function createTriageSession(
       status: "open",
       transcript: [],
       draft_prd: null,
+      entry_point: null,
+      trigger_payload: null,
       created_at: now,
       updated_at: now,
     };
@@ -79,14 +82,11 @@ export async function sendTriageMessage(
     session.updated_at = new Date().toISOString();
     return { messages: [human, agent], draft_prd: session.draft_prd };
   }
-  // API contract: { sessionId, role, content }. Returns { transcript, draft_prd }.
-  // The UI calls only with the human's user role; the backend appends an
-  // assistant reply through the triage Tachikoma (deferred LLM stub in v1).
   return majorFetch<{ messages: TriageMessage[]; draft_prd: string | null }>(
     "major-send-triage-message",
     {
       method: "POST",
-      body: { sessionId, role: "user", content },
+      body: { sessionId, content },
       authToken,
     },
   );
@@ -108,6 +108,134 @@ export async function finalizeTriageSession(
   return majorFetch<TriageChangeSet>("major-finalize-triage-session", {
     method: "POST",
     body: { sessionId, operations: [] },
+    authToken,
+  });
+}
+
+export async function createGithubIssue(
+  sessionId: number,
+  repo: string,
+  authToken?: string,
+): Promise<{ url: string; number: number }> {
+  if (USE_MOCK) {
+    return { url: "https://github.com/MioMarker/major/issues/99", number: 99 };
+  }
+  return majorFetch<{ url: string; number: number }>("major-create-github-issue", {
+    method: "POST",
+    body: { sessionId, repo },
+    authToken,
+  });
+}
+
+export async function listExternalIssues(
+  authToken?: string,
+): Promise<ExternalIssue[]> {
+  if (USE_MOCK) {
+    return [
+      {
+        repo: "MioMarker/healthbite",
+        number: 42,
+        title: "Streak ring color drift in dark mode",
+        labels: ["needs-triage", "bug"],
+        created_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+        url: "https://github.com/MioMarker/healthbite/issues/42",
+      },
+      {
+        repo: "MioMarker/healix",
+        number: 7,
+        title: "Onboarding flow skips permissions step on Android 14",
+        labels: ["major:triage"],
+        created_at: new Date(Date.now() - 25 * 3_600_000).toISOString(),
+        url: "https://github.com/MioMarker/healix/issues/7",
+      },
+      {
+        repo: "MioMarker/major",
+        number: 81,
+        title: "Shell heartbeat delay causes spurious reaper cancellations",
+        labels: ["needs-triage"],
+        created_at: new Date(Date.now() - 48 * 3_600_000).toISOString(),
+        url: "https://github.com/MioMarker/major/issues/81",
+      },
+    ];
+  }
+  return majorFetch<ExternalIssue[]>("major-list-external-issues", { authToken });
+}
+
+export async function importExternalIssues(
+  issues: Array<{ repo: string; number: number }>,
+  authToken?: string,
+): Promise<{ imported: number }> {
+  if (USE_MOCK) {
+    return { imported: issues.length };
+  }
+  return majorFetch<{ imported: number }>("major-import-external-issues", {
+    method: "POST",
+    body: { issues },
+    authToken,
+  });
+}
+
+export async function deleteTriageSession(
+  sessionId: number,
+  authToken?: string,
+): Promise<{ sessionId: number; deleted: boolean }> {
+  if (USE_MOCK) {
+    return { sessionId, deleted: true };
+  }
+  return majorFetch<{ sessionId: number; deleted: boolean }>("major-delete-triage-session", {
+    method: "POST",
+    body: { sessionId },
+    authToken,
+  });
+}
+
+export interface AutoTriageSessionResult {
+  sessionId: number;
+  title: string;
+  outcome: "triaged" | "needs_human_apply" | "failed";
+  changeSetId?: number;
+  summary: string;
+  error?: string;
+}
+
+export interface AutoTriageResponse {
+  processed: number;
+  triaged: number;
+  needs_human_apply: number;
+  failed: number;
+  results: AutoTriageSessionResult[];
+}
+
+export async function autoTriageSessions(
+  authToken?: string,
+): Promise<AutoTriageResponse> {
+  if (USE_MOCK) {
+    return {
+      processed: 2,
+      triaged: 1,
+      needs_human_apply: 1,
+      failed: 0,
+      results: [
+        {
+          sessionId: 1,
+          title: "Mock session 1",
+          outcome: "triaged",
+          changeSetId: 101,
+          summary: "Created feature Brief and set ready-for-agent.",
+        },
+        {
+          sessionId: 2,
+          title: "Mock session 2",
+          outcome: "needs_human_apply",
+          changeSetId: 102,
+          summary: "Proposed Brief — path-blocker flagged for human review.",
+        },
+      ],
+    };
+  }
+  return majorFetch<AutoTriageResponse>("major-auto-triage-sessions", {
+    method: "POST",
+    body: {},
     authToken,
   });
 }

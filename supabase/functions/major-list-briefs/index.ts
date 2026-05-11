@@ -70,7 +70,29 @@ Deno.serve(async (req) => {
       return errorResponse(error.message, 500);
     }
 
-    return jsonResponse({ briefs: data ?? [], total: count ?? 0 });
+    const rows = data ?? [];
+    const revisionIds = rows
+      .map((b) => b.current_revision_id)
+      .filter((id): id is number => id !== null);
+
+    const titleMap: Record<number, string | null> = {};
+    if (revisionIds.length > 0) {
+      const { data: revisions } = await auth.client
+        .from("brief_content_revisions")
+        .select("id, content_md")
+        .in("id", revisionIds);
+      for (const rev of revisions ?? []) {
+        const match = (rev.content_md as string).match(/^#\s+(.+)/m);
+        titleMap[rev.id as number] = match?.[1]?.trim() ?? null;
+      }
+    }
+
+    const briefs = rows.map((b) => ({
+      ...b,
+      title: b.current_revision_id != null ? (titleMap[b.current_revision_id] ?? null) : null,
+    }));
+
+    return jsonResponse({ briefs, total: count ?? 0 });
   } catch (err) {
     console.error("[major-list-briefs]", err);
     return errorResponse(err instanceof Error ? err.message : "Server error", 500);
