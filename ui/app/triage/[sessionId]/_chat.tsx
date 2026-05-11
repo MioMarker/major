@@ -129,6 +129,11 @@ export function TriageChat({ session }: { session: TriageSession }) {
             rows={3}
             disabled={isSending || isClosed}
           />
+          {!isClosed && (
+            <span className="self-end text-xs text-muted-foreground">
+              ⌘↩ to send
+            </span>
+          )}
           <div className="flex items-center justify-between gap-2">
             <Button
               variant="ghost"
