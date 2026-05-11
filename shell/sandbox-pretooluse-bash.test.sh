@@ -99,6 +99,17 @@ expect_exit 0 "flag install chained with &&"           "npm install --no-audit &
 expect_exit 0 "flag install chained with ;"            "npm install --no-audit; ls"
 
 echo ""
+echo "-- Issue #46 verbatim repro cases (MUST be allowed) --"
+
+# Exact strings from GitHub issue #46. The hook denied these before PR #48
+# because the leading `2` of `2>&1` and the `tail`/`grep` token after `|`
+# matched the non-flag positional class. Kept verbatim so a future regression
+# fails on the exact wire the bug report cited.
+expect_exit 0 "issue #46 case 1"                       "npm install --legacy-peer-deps 2>&1 | tail -20"
+expect_exit 0 "issue #46 case 2"                       "npm install 2>/dev/null"
+expect_exit 0 "issue #46 case 3"                       "npm install | grep error"
+
+echo ""
 echo "-- Package install combined with redirects/pipes MUST still block --"
 
 # Defensive: stripping shell noise must not let real package installs leak through.
@@ -107,6 +118,8 @@ expect_exit 2 "package install with file redirect"     "npm install jest-expo > 
 expect_exit 2 "package install piped"                  "npm install jest-expo | tail -5"
 expect_exit 2 "package install chained &&"             "npm install jest-expo && echo done"
 expect_exit 2 "package install chained ;"              "npm install jest-expo; ls"
+expect_exit 2 "npm install lodash (long form)"         "npm install lodash"
+expect_exit 2 "npm install with flag + lodash"         "npm install --legacy-peer-deps lodash"
 
 echo ""
 echo "== Result: $PASS passed, $FAIL failed =="
