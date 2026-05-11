@@ -525,6 +525,7 @@ export async function handleIssue(
       status: "open",
       transcript: [],
       trigger_payload: triggerPayload,
+      entry_point: "integration:github",
     })
     .select("id")
     .single();
