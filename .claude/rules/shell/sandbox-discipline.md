@@ -77,13 +77,13 @@ Don't write Shell code paths that perform Run-like work without first calling `m
 
 ## Heartbeat Fidelity
 
-The Shell heartbeats every 30s via `major-heartbeat`. The lease is 90s. If the Shell is too slow to heartbeat:
+The Shell heartbeats every 30s via `major-heartbeat`. The lease is **300s (5 minutes)** per ADR 019. If the Shell is too slow to heartbeat:
 
 - It loses the lease.
 - The Reaper marks the Run cancelled.
 - The Shell detects it on the next API call (lease ownership check) and aborts gracefully.
 
-Don't extend the lease without an ADR. The 90s window is calibrated to Tachikoma iteration tempo + network reliability.
+The 300s window gives the Shell ~9 missed heartbeats of margin — intentionally generous for v1 to absorb LLM latency spikes and CI poll loops. Don't shorten without an ADR; don't extend without an ADR.
 
 ## Phase Discipline
 

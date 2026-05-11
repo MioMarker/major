@@ -56,3 +56,7 @@ This preserves the historical record of why we believed what we believed at the 
 - [015 — `major-shell-bot` GitHub identity authors all Shell-opened PRs](./015-major-shell-bot-identity.md)
 - [016 — `merge-blocked` Brief status for Mode 1 attempt failures](./016-merge-blocked-brief-status.md)
 - [017 — Mode 1 per-PR algorithm upgrade: pre-flight + approve + merge](./017-mode-1-pre-flight-merge-algorithm.md)
+- [018 — Triage Change Operation payload casing: snake_case in JSONB, camelCase on TS interfaces](./018-change-operation-payload-casing.md)
+- [019 — Heartbeat lease length: 300s (5 min) with 30s heartbeat cadence](./019-heartbeat-lease-length.md)
+- [020 — Test framework split: pgTAP for RPCs, Deno test for edge functions, Vitest for Shell](./020-test-framework-split.md)
+- [021 — PR Derived Facts storage: JSONB column on `major.briefs`](./021-pr-derived-facts-storage.md)
