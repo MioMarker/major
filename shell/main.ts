@@ -81,9 +81,9 @@ function readEnv(): ShellEnv {
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const POLL_IDLE_MS = 10_000;
-const TRIAGE_POLL_IDLE_MS = 15_000;
 const CI_POLL_INTERVAL_MS = 30_000;
 const CI_POLL_TIMEOUT_MS = 20 * 60_000; // 20 min per SPEC
+const TRIAGE_POLL_IDLE_MS = POLL_IDLE_MS;
 
 // HTTP retry policy for Major API calls. Exponential backoff with jitter.
 const MAX_HTTP_RETRIES = 5;
@@ -234,43 +234,41 @@ async function mainLoop(): Promise<void> {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Triage session loop — auto-triages GitHub-seeded sessions
+// Triage session loop — GitHub-seeded sessions only
 // ────────────────────────────────────────────────────────────────────
 
 interface TriageSessionRow {
   id: number;
-  trigger_payload: {
-    source_issue_title?: string;
-    source_issue_body_md?: string;
-    source_issue_repo?: string;
-    source_issue_number?: number;
-  };
+  status: string;
+  entry_point: string | null;
+  trigger_payload: Record<string, unknown> | null;
+  auto_triage_shell_id: string | null;
+  auto_triage_started_at: string | null;
+  initiator_actor: string;
+  created_at: string;
+}
+
+interface TriageChangeOp {
+  operation_type: string;
+  payload: Record<string, unknown>;
+  sequence_index: number;
 }
 
 interface TriageOutput {
   phase: "triage";
   ok: boolean;
-  summary: string;
-  operations: Array<Record<string, unknown>>;
-}
-
-function parseTriageOutput(raw: unknown): TriageOutput | null {
-  if (!raw || typeof raw !== "object") return null;
-  const obj = raw as Record<string, unknown>;
-  if (obj.phase !== "triage") return null;
-  if (typeof obj.ok !== "boolean") return null;
-  if (typeof obj.summary !== "string") return null;
-  if (!Array.isArray(obj.operations)) return null;
-  return obj as unknown as TriageOutput;
+  summary?: string;
+  operations: TriageChangeOp[];
+  decline_reason?: string;
 }
 
 async function triageSessionLoop(): Promise<void> {
   while (!shuttingDown) {
     let session: TriageSessionRow | null = null;
     try {
-      session = await callPollAndClaimTriageSession();
+      session = await callClaimNextTriageSession();
     } catch (err) {
-      log("warn", "triage session poll/claim failed", { error: errToString(err) });
+      log("warn", "triage-session claim attempt failed", { error: errToString(err) });
       await sleep(TRIAGE_POLL_IDLE_MS);
       continue;
     }
@@ -280,200 +278,198 @@ async function triageSessionLoop(): Promise<void> {
       continue;
     }
 
-    log("info", "claimed triage session", { sessionId: session.id });
+    log("info", "triage session claimed", { sessionId: session.id });
+
     try {
       await runTriageSession(session);
     } catch (err) {
-      log("error", "triage session threw", {
+      log("error", "triage session threw; clearing claim", {
         sessionId: session.id,
         error: errToString(err),
       });
-      await callReleaseTriageSession(session.id).catch((releaseErr) => {
-        log("warn", "release triage session failed", {
+      try {
+        await callClearTriageSessionClaim(session.id);
+      } catch (clearErr) {
+        log("warn", "failed to clear triage session claim", {
           sessionId: session.id,
-          error: errToString(releaseErr),
+          error: errToString(clearErr),
         });
-      });
+      }
     }
   }
 }
 
 async function runTriageSession(session: TriageSessionRow): Promise<void> {
-  const triageDir = path.join("/work", `.triage-${session.id}`);
-  await fs.mkdir(triageDir, { recursive: true });
+  const tp = session.trigger_payload ?? {};
+  const issueBodyMd = typeof tp.source_issue_body_md === "string" ? tp.source_issue_body_md : "";
+  const issueTitle = typeof tp.source_issue_title === "string" ? tp.source_issue_title : `Issue #${session.id}`;
+  const issueRepo = typeof tp.source_issue_repo === "string" ? tp.source_issue_repo : null;
+  const issueNumber = typeof tp.source_issue_number === "number" ? tp.source_issue_number : null;
+
+  const workspaceDir = `/work/triage-${session.id}`;
+  await fs.mkdir(workspaceDir, { recursive: true });
+
   try {
-    const tp = session.trigger_payload;
+    const majorDir = path.join("/work", ".major");
+    await fs.mkdir(majorDir, { recursive: true });
 
-    // Encode session context in contentMd as a frontmatter block so the
-    // Tachikoma receives it without requiring tachikoma.ts changes.
-    const frontmatter = [
-      "---",
-      `triage_mode: session`,
-      `source_issue_number: ${tp.source_issue_number ?? ""}`,
-      `source_session_id: ${session.id}`,
-      "---",
-      "",
-    ].join("\n");
-    const contentMd = frontmatter + (tp.source_issue_body_md ?? "");
+    // Write session context so the triage Tachikoma detects session mode.
+    await fs.writeFile(
+      path.join(majorDir, "session.json"),
+      JSON.stringify(
+        {
+          sessionId: session.id,
+          issueTitle,
+          issueBodyMd,
+          issueRepo,
+          issueNumber,
+          sourceIssueUrl: typeof tp.source_issue_url === "string" ? tp.source_issue_url : null,
+          sourceIssueAuthorLogin:
+            typeof tp.source_issue_author_login === "string" ? tp.source_issue_author_login : null,
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
 
-    const brief: TachikomaBriefSnapshot = {
+    // Fetch queue context to help the Tachikoma pick a non-conflicting rank.
+    await fetchAndWriteTriageContext(majorDir);
+
+    // Synthetic brief snapshot — provides logging context; Tachikoma uses
+    // session.json for actual input.
+    const syntheticBrief: TachikomaBriefSnapshot = {
       id: session.id,
-      title: tp.source_issue_title ?? `Session #${session.id}`,
+      title: issueTitle,
       status: "open",
       classifications: [],
       expectedArtifactType: null,
       expectedPaths: [],
       baseBranch: "dev",
-      gitRepositoryRef: tp.source_issue_repo ?? null,
-      contentMd,
+      gitRepositoryRef: issueRepo,
+      contentMd: issueBodyMd,
       currentRevisionId: null,
     };
 
     const runMeta: TachikomaRunSnapshot = {
+      // Use session id as pseudo-run id; no rows.runs entry for triage sessions.
       id: session.id,
       purpose: "triage",
       shellId: env.shellId,
     };
 
-    // Write stub context files that the triage prompt reads.
-    const majorDir = path.join("/work", ".major");
-    await fs.mkdir(majorDir, { recursive: true });
-    await fs.writeFile(
-      path.join(majorDir, "queue.json"),
-      JSON.stringify({ briefs: [] }, null, 2),
-      "utf8",
-    );
-    await fs.writeFile(
-      path.join(majorDir, "path_blocker_config.json"),
-      JSON.stringify({ protected_globs: [], mass_rerank_threshold: 10 }, null, 2),
-      "utf8",
-    );
-
     const result = await runSandboxAgent({
       role: "triage",
-      sandboxDir: triageDir,
-      brief,
+      sandboxDir: workspaceDir,
+      brief: syntheticBrief,
       run: runMeta,
     });
 
-    log("info", "triage Tachikoma ended", {
+    log("info", "triage tachikoma ended", {
       sessionId: session.id,
       ok: result.ok,
       exitCode: result.exitCode,
       durationMs: result.durationMs,
+      parseErrors: result.tachikomaParseErrors,
     });
 
     if (!result.ok) {
-      log("warn", "triage Tachikoma failed; releasing session", { sessionId: session.id });
-      await callReleaseTriageSession(session.id);
+      log("warn", "triage tachikoma failed; clearing claim for retry", { sessionId: session.id });
+      await callClearTriageSessionClaim(session.id);
       return;
     }
 
-    const triageOutput = parseTriageOutput(result.parsedOutput);
-    if (!triageOutput || !triageOutput.ok || triageOutput.operations.length === 0) {
-      log("warn", "triage output invalid or empty; releasing session", { sessionId: session.id });
-      await callReleaseTriageSession(session.id);
+    const triageOut = parseTriageOutput(result.parsedOutput);
+    if (!triageOut) {
+      log("warn", "triage tachikoma produced unparseable output; clearing claim", {
+        sessionId: session.id,
+        outputSnippet: result.stdoutSnippet.slice(-512),
+      });
+      await callClearTriageSessionClaim(session.id);
+      return;
+    }
+
+    if (!triageOut.ok) {
+      log("info", "triage tachikoma declined session", {
+        sessionId: session.id,
+        declineReason: triageOut.decline_reason ?? "(none)",
+      });
+      // Declining is a valid terminal outcome: close the session without ops.
+      await callFinalizeTriageSession({
+        sessionId: session.id,
+        summary: triageOut.decline_reason ?? "tachikoma declined",
+        operations: [],
+      });
+      return;
+    }
+
+    if (triageOut.operations.length === 0) {
+      log("warn", "triage tachikoma ok but produced no operations; clearing claim", {
+        sessionId: session.id,
+      });
+      await callClearTriageSessionClaim(session.id);
       return;
     }
 
     await callFinalizeTriageSession({
       sessionId: session.id,
-      summary: triageOutput.summary,
-      operations: triageOutput.operations,
+      summary: triageOut.summary ?? "auto-triage complete",
+      operations: triageOut.operations,
     });
 
-    log("info", "triage session finalized", { sessionId: session.id });
+    log("info", "triage session finalized", {
+      sessionId: session.id,
+      opCount: triageOut.operations.length,
+    });
   } finally {
-    await fs.rm(triageDir, { recursive: true, force: true }).catch(() => {});
+    // Remove session context files written for this run.
+    await fs.rm(path.join("/work", ".major", "session.json"), { force: true }).catch(() => undefined);
+    await fs.rm(workspaceDir, { recursive: true, force: true }).catch((err) => {
+      log("warn", "triage workspace cleanup failed", {
+        workspaceDir,
+        error: errToString(err),
+      });
+    });
   }
 }
 
-// ────────────────────────────────────────────────────────────────────
-// Triage session API helpers (PostgREST direct — no edge function for
-// poll/claim/release; finalize uses the existing major-finalize-triage-session)
-// ────────────────────────────────────────────────────────────────────
+/** Fetch queue and path-blocker context for the triage Tachikoma. Non-fatal on failure. */
+async function fetchAndWriteTriageContext(majorDir: string): Promise<void> {
+  const restBase = supabaseRestUrl();
+  const headers = supabaseRestHeaders({ read: true });
 
-function supabaseRestBase(): string {
-  return env.apiBaseUrl.replace("/functions/v1", "/rest/v1");
-}
-
-async function callPollAndClaimTriageSession(): Promise<TriageSessionRow | null> {
-  const restBase = supabaseRestBase();
-
-  const listResp = await fetch(
-    `${restBase}/triage_sessions?entry_point=eq.integration%3Agithub&status=eq.open&auto_triage_shell_id=is.null&select=id,trigger_payload`,
-    {
-      headers: {
-        Authorization: `Bearer ${env.supabaseServiceRoleKey}`,
-        apikey: env.supabaseServiceRoleKey,
-        Accept: "application/json",
-      },
-    },
-  );
-  if (!listResp.ok) {
-    throw new Error(`poll triage sessions HTTP ${listResp.status}`);
+  // Queue: briefs in active statuses sorted by queue_rank.
+  try {
+    const params = new URLSearchParams({
+      select: "id,status,queue_rank,title",
+      "status": "in.(ready-for-triage,ready-for-agent,agent-running)",
+      order: "queue_rank.asc.nullslast",
+      limit: "100",
+    });
+    const resp = await fetch(`${restBase}/briefs?${params}`, { headers });
+    if (resp.ok) {
+      const queue = await resp.json();
+      await fs.writeFile(path.join(majorDir, "queue.json"), JSON.stringify(queue, null, 2), "utf8");
+    }
+  } catch {
+    // Non-fatal; prompt works without queue context.
   }
-  const sessions = (await listResp.json()) as TriageSessionRow[];
-  const eligible = sessions.filter(
-    (s) =>
-      typeof s.trigger_payload?.source_issue_body_md === "string" &&
-      s.trigger_payload.source_issue_body_md.length > 0,
-  );
-  if (eligible.length === 0) return null;
 
-  // Atomic optimistic claim: PATCH with WHERE auto_triage_shell_id IS NULL guard.
-  const candidate = eligible[0];
-  const claimResp = await fetch(
-    `${restBase}/triage_sessions?id=eq.${candidate.id}&auto_triage_shell_id=is.null`,
-    {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${env.supabaseServiceRoleKey}`,
-        apikey: env.supabaseServiceRoleKey,
-        "Content-Type": "application/json",
-        Prefer: "return=representation",
-      },
-      body: JSON.stringify({
-        auto_triage_shell_id: env.shellId,
-        auto_triage_started_at: new Date().toISOString(),
-      }),
-    },
-  );
-  if (!claimResp.ok) {
-    throw new Error(`claim triage session HTTP ${claimResp.status}`);
+  // Path-blocker config.
+  try {
+    const resp = await fetch(`${restBase}/path_blocker_config?id=eq.1`, { headers });
+    if (resp.ok) {
+      const rows = await resp.json() as unknown[];
+      const cfg = rows.length > 0 ? rows[0] : {};
+      await fs.writeFile(
+        path.join(majorDir, "path_blocker_config.json"),
+        JSON.stringify(cfg, null, 2),
+        "utf8",
+      );
+    }
+  } catch {
+    // Non-fatal.
   }
-  const claimed = (await claimResp.json()) as TriageSessionRow[];
-  // 0 rows = race lost; another Shell claimed it first.
-  if (claimed.length === 0) return null;
-  return candidate;
-}
-
-async function callReleaseTriageSession(sessionId: number): Promise<void> {
-  const restBase = supabaseRestBase();
-  await fetch(`${restBase}/triage_sessions?id=eq.${sessionId}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${env.supabaseServiceRoleKey}`,
-      apikey: env.supabaseServiceRoleKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      auto_triage_shell_id: null,
-      auto_triage_started_at: null,
-    }),
-  });
-}
-
-async function callFinalizeTriageSession(args: {
-  sessionId: number;
-  summary: string;
-  operations: Array<Record<string, unknown>>;
-}): Promise<void> {
-  await majorApiPost("major-finalize-triage-session", {
-    sessionId: args.sessionId,
-    summary: args.summary,
-    operations: args.operations,
-  });
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -1157,6 +1153,141 @@ async function callRecordTelemetry(args: {
   });
 }
 
+// ────────────────────────────────────────────────────────────────────
+// Triage session REST helpers — direct Supabase PostgREST calls
+// ────────────────────────────────────────────────────────────────────
+
+/**
+ * Derive the Supabase PostgREST base URL from the Major API base URL.
+ * MAJOR_API_BASE_URL = https://<project>.supabase.co/functions/v1
+ * REST URL           = https://<project>.supabase.co/rest/v1
+ */
+function supabaseRestUrl(): string {
+  return env.apiBaseUrl.replace(/\/functions\/v1$/, "/rest/v1");
+}
+
+/** Build headers for Supabase PostgREST requests against the major schema. */
+function supabaseRestHeaders(opts: { read: boolean }): Record<string, string> {
+  return {
+    Authorization: `Bearer ${env.supabaseServiceRoleKey}`,
+    apikey: env.supabaseServiceRoleKey,
+    "Content-Type": "application/json",
+    ...(opts.read
+      ? { "Accept-Profile": "major" }
+      : { "Content-Profile": "major" }),
+  };
+}
+
+/**
+ * List up to 5 unclaimed open triage sessions seeded from GitHub.
+ * Filters: entry_point = 'integration:github', status = 'open',
+ *          auto_triage_shell_id IS NULL,
+ *          trigger_payload->>'source_issue_body_md' IS NOT NULL.
+ */
+async function callListUnclaimedTriageSessions(): Promise<TriageSessionRow[]> {
+  const restBase = supabaseRestUrl();
+  const params = new URLSearchParams();
+  params.set("entry_point", "eq.integration:github");
+  params.set("status", "eq.open");
+  params.set("auto_triage_shell_id", "is.null");
+  params.set("trigger_payload->>source_issue_body_md", "not.is.null");
+  params.set("limit", "5");
+  params.set("order", "created_at.asc");
+
+  const resp = await fetch(`${restBase}/triage_sessions?${params}`, {
+    method: "GET",
+    headers: supabaseRestHeaders({ read: true }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`list triage sessions failed: HTTP ${resp.status}: ${text.slice(0, 300)}`);
+  }
+
+  return resp.json() as Promise<TriageSessionRow[]>;
+}
+
+/**
+ * Attempt an atomic claim of a triage session.
+ * Uses UPDATE … WHERE auto_triage_shell_id IS NULL so only one Shell wins.
+ * Returns the claimed row on success, null if another Shell already claimed it.
+ */
+async function callClaimTriageSession(sessionId: number): Promise<TriageSessionRow | null> {
+  const restBase = supabaseRestUrl();
+  const params = new URLSearchParams({
+    id: `eq.${sessionId}`,
+    auto_triage_shell_id: "is.null",
+  });
+
+  const resp = await fetch(`${restBase}/triage_sessions?${params}`, {
+    method: "PATCH",
+    headers: {
+      ...supabaseRestHeaders({ read: false }),
+      "Prefer": "return=representation",
+    },
+    body: JSON.stringify({
+      auto_triage_shell_id: env.shellId,
+      auto_triage_started_at: new Date().toISOString(),
+    }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`claim triage session failed: HTTP ${resp.status}: ${text.slice(0, 300)}`);
+  }
+
+  const rows = await resp.json() as TriageSessionRow[];
+  return rows.length > 0 ? (rows[0] ?? null) : null;
+}
+
+/** List candidates and claim the first one available. Returns null if none. */
+async function callClaimNextTriageSession(): Promise<TriageSessionRow | null> {
+  const candidates = await callListUnclaimedTriageSessions();
+  for (const candidate of candidates) {
+    const claimed = await callClaimTriageSession(candidate.id);
+    if (claimed) return claimed;
+  }
+  return null;
+}
+
+/**
+ * Clear the Shell's claim on a triage session so it can be retried.
+ * Only clears if this Shell currently owns the claim.
+ */
+async function callClearTriageSessionClaim(sessionId: number): Promise<void> {
+  const restBase = supabaseRestUrl();
+  const params = new URLSearchParams({
+    id: `eq.${sessionId}`,
+    auto_triage_shell_id: `eq.${env.shellId}`,
+  });
+
+  const resp = await fetch(`${restBase}/triage_sessions?${params}`, {
+    method: "PATCH",
+    headers: supabaseRestHeaders({ read: false }),
+    body: JSON.stringify({
+      auto_triage_shell_id: null,
+      auto_triage_started_at: null,
+    }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`clear triage session claim failed: HTTP ${resp.status}: ${text.slice(0, 300)}`);
+  }
+}
+
+async function callFinalizeTriageSession(args: {
+  sessionId: number;
+  summary: string;
+  operations: TriageChangeOp[];
+}): Promise<void> {
+  await majorApiPost("major-finalize-triage-session", {
+    sessionId: args.sessionId,
+    summary: args.summary,
+    operations: args.operations,
+  });
+}
+
 /**
  * POST helper with retry + exponential backoff.
  * Throws on persistent failure after MAX_HTTP_RETRIES; caller decides what to
@@ -1257,6 +1388,14 @@ function parseReviewerOutput(raw: unknown): ReviewerOutput | null {
   if (obj.phase !== "reviewer") return null;
   if (obj.status !== "pass" && obj.status !== "fail" && obj.status !== "pending") return null;
   return obj as unknown as ReviewerOutput;
+}
+
+function parseTriageOutput(raw: unknown): TriageOutput | null {
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  if (obj.phase !== "triage") return null;
+  if (!Array.isArray(obj.operations)) return null;
+  return obj as unknown as TriageOutput;
 }
 
 async function readTelemetryJsonl(): Promise<TelemetryPayload[]> {
