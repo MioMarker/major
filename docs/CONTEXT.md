@@ -49,7 +49,7 @@ _Avoid_: "Work Item" (pre-rename), "ticket," "issue" (GitHub Issues are not Brie
 
 **Work Item** — see Brief.
 
-**Brief Status** — Lifecycle position. Exactly one of `{ready-for-triage, needs-info, ready-for-agent, agent-running, ready-for-review, ready-for-human, done, wontfix}`. Stored as a column; never derived.
+**Brief Status** — Lifecycle position. Exactly one of `{ready-for-triage, needs-info, ready-for-agent, agent-running, ready-for-review, ready-for-human, merge-blocked, done, wontfix}`. Stored as a column; never derived.
 _Avoid_: "Work Item Status" (pre-rename), "state" (use "Status"; "state" colloquially overloads with the state machine), "stage," "phase" (those collide with Run phase terminology).
 
 **Brief Classification** — The "kind of work" tag. One of `bug-fix | feature | refactor | docs | parent | epic`. Orthogonal to Status.
@@ -63,6 +63,9 @@ _Avoid_: "approval mode," "parent gating."
 
 **Blocked Brief** — Derived; a Brief with at least one unresolved required relationship. Not a stored Status.
 _Avoid_: "Blocked Work Item" (pre-rename), "blocked status" (it isn't one), "stuck Brief."
+
+**Merge-Blocked Brief** — A Brief whose PR was approved-ready but the most recent Mode 1 merge attempt was rejected (conflict, red CI, etc.); re-eligible for Mode 1 retry without operator action. Stored Status `merge-blocked`; non-terminal. Per ADR 016: Mode 1 sets this on per-PR failure; transitions to `done` (Mode 1 retry succeeds or PR-merge webhook fires) or `wontfix` (PR-close webhook fires). The failure reason rides on the `status-transitioned` Event payload (`merge_attempt_failed_reason`, `pr_url`, `github_response`).
+_Avoid_: "stuck Brief," "failed merge" (Mode 1 didn't fail — the merge attempt did), "blocked Brief" (overloads Blocked Brief), "merge-failed" (the constraint value is `merge-blocked`, not `merge-failed`).
 
 **Missing Information Request** — Content convention required for `needs-info` Status. Names what info is missing and what would unblock.
 _Avoid_: "info request," "follow-up note," "blocker comment."
