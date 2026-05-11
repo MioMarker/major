@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -35,6 +35,11 @@ export function TriageChat({ session }: { session: TriageSession }) {
     useState<{ url: string; number: number } | null>(null);
   const [isSending, startSend] = useTransition();
   const [isApplying, startApply] = useTransition();
+  const [isMac, setIsMac] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    setIsMac(navigator.platform.toUpperCase().includes("MAC"));
+  }, []);
 
   const isClosed = session.status === "closed";
 
@@ -121,7 +126,7 @@ export function TriageChat({ session }: { session: TriageSession }) {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && e.metaKey && !isSending && draft.trim()) {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !isSending && draft.trim()) {
                 e.preventDefault();
                 handleSend();
               }
@@ -130,14 +135,19 @@ export function TriageChat({ session }: { session: TriageSession }) {
             disabled={isSending || isClosed}
           />
           <div className="flex items-center justify-between gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={isSending || isClosed || !draft.trim()}
-              onClick={handleSend}
-            >
-              {isSending ? "Sending…" : "Send"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={isSending || isClosed || !draft.trim()}
+                onClick={handleSend}
+              >
+                {isSending ? "Sending…" : "Send"}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {isMac === null ? "⌘↩ / Ctrl↩" : isMac ? "⌘↩" : "Ctrl↩"}
+              </span>
+            </div>
             <div className="flex items-center gap-2">
               <select
                 value={selectedRepo}
