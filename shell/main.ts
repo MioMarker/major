@@ -106,6 +106,10 @@ interface ActiveRunState {
 let activeRun: ActiveRunState | null = null;
 let shuttingDown = false;
 let env: ShellEnv;
+// Set by callHeartbeat when the API returns renewedRun=false (Reaper cancelled
+// the active Run). Checked at phase boundaries in executeRun and cleared after
+// the Shell finishes aborting the Run (finding F-10).
+let leaseLostFlag = false;
 
 // ────────────────────────────────────────────────────────────────────
 // Boot
@@ -146,8 +150,8 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
 
-  // Main loop + triage session loop run concurrently.
-  await Promise.all([mainLoop(), triageSessionLoop()]);
+  // Main loop, triage session loop, and auto-triage dispatcher run concurrently.
+  await Promise.all([mainLoop(), triageSessionLoop(), autoTriageLoop()]);
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -228,6 +232,9 @@ async function mainLoop(): Promise<void> {
     } finally {
       const sb = activeRun?.sandboxDir;
       activeRun = null;
+      // Reset lease-lost flag so a stale signal from this Run does not
+      // contaminate the next claimed Brief.
+      leaseLostFlag = false;
       if (sb) await cleanupSandbox(sb);
     }
   }
@@ -473,6 +480,270 @@ async function fetchAndWriteTriageContext(majorDir: string): Promise<void> {
 }
 
 // ────────────────────────────────────────────────────────────────────
+// Auto-triage dispatcher — processes auto_triage_requests rows
+// ────────────────────────────────────────────────────────────────────
+//
+// `major-start-auto-triage` writes rows to major.auto_triage_requests;
+// previously nothing consumed them (finding F-20). This loop claims rows
+// in `requested` status, verifies the associated Brief is still
+// `ready-for-triage`, and spawns a triage Tachikoma. Full change-set
+// application via a triage session is deferred — this stub ensures the
+// request rows are not inert.
+
+interface AutoTriageRequest {
+  id: number;
+  brief_id: number;
+  status: string;
+  requested_actor: string;
+  requested_revision_id: number | null;
+  resulting_run_id: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface TriageBriefRow {
+  id: number;
+  title: string;
+  status: string;
+  classifications: string[];
+  git_repository_ref: string | null;
+  content_md: string;
+  current_revision_id: number | null;
+}
+
+async function autoTriageLoop(): Promise<void> {
+  while (!shuttingDown) {
+    let request: AutoTriageRequest | null = null;
+    try {
+      request = await callClaimNextAutoTriageRequest();
+    } catch (err) {
+      log("warn", "auto-triage poll failed", { error: errToString(err) });
+      await sleep(TRIAGE_POLL_IDLE_MS);
+      continue;
+    }
+
+    if (!request) {
+      await sleep(TRIAGE_POLL_IDLE_MS);
+      continue;
+    }
+
+    log("info", "auto-triage request claimed", { requestId: request.id, briefId: request.brief_id });
+
+    try {
+      await runAutoTriage(request);
+    } catch (err) {
+      log("error", "auto-triage run threw; marking request failed", {
+        requestId: request.id,
+        error: errToString(err),
+      });
+      await callUpdateAutoTriageRequest(request.id, "failed").catch((e) => {
+        log("warn", "auto-triage: failed to mark request as failed", { error: errToString(e) });
+      });
+    }
+  }
+}
+
+async function runAutoTriage(request: AutoTriageRequest): Promise<void> {
+  // Fetch the Brief to confirm it is still ready-for-triage.
+  const brief = await fetchBriefForAutoTriage(request.brief_id);
+  if (!brief) {
+    log("warn", "auto-triage: brief not found; marking request failed", {
+      requestId: request.id,
+      briefId: request.brief_id,
+    });
+    await callUpdateAutoTriageRequest(request.id, "failed");
+    return;
+  }
+
+  if (brief.status !== "ready-for-triage") {
+    log("info", "auto-triage: brief is no longer ready-for-triage; superseding request", {
+      requestId: request.id,
+      briefId: request.brief_id,
+      briefStatus: brief.status,
+    });
+    await callUpdateAutoTriageRequest(request.id, "superseded");
+    return;
+  }
+
+  const workspaceDir = `/work/auto-triage-${request.id}`;
+  await fs.mkdir(workspaceDir, { recursive: true });
+
+  try {
+    const majorDir = path.join("/work", ".major");
+    await fs.mkdir(majorDir, { recursive: true });
+
+    // Write session context so the triage Tachikoma detects session mode.
+    await fs.writeFile(
+      path.join(majorDir, "session.json"),
+      JSON.stringify(
+        {
+          sessionId: request.id,
+          issueTitle: brief.title,
+          issueBodyMd: brief.content_md,
+          issueRepo: brief.git_repository_ref,
+          issueNumber: null,
+          sourceIssueUrl: null,
+          sourceIssueAuthorLogin: null,
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    await fetchAndWriteTriageContext(majorDir);
+
+    const syntheticBrief: TachikomaBriefSnapshot = {
+      id: brief.id,
+      title: brief.title,
+      status: brief.status,
+      classifications: brief.classifications,
+      expectedArtifactType: null,
+      expectedPaths: [],
+      baseBranch: "dev",
+      gitRepositoryRef: brief.git_repository_ref,
+      contentMd: brief.content_md,
+      currentRevisionId: brief.current_revision_id,
+    };
+
+    const runMeta: TachikomaRunSnapshot = {
+      id: request.id,
+      purpose: "triage",
+      shellId: env.shellId,
+    };
+
+    const result = await runSandboxAgent({
+      role: "triage",
+      sandboxDir: workspaceDir,
+      brief: syntheticBrief,
+      run: runMeta,
+    });
+
+    log("info", "auto-triage tachikoma ended", {
+      requestId: request.id,
+      ok: result.ok,
+      exitCode: result.exitCode,
+      durationMs: result.durationMs,
+    });
+
+    if (!result.ok) {
+      await callUpdateAutoTriageRequest(request.id, "failed");
+      return;
+    }
+
+    const triageOut = parseTriageOutput(result.parsedOutput);
+    if (!triageOut || !triageOut.ok) {
+      log("warn", "auto-triage tachikoma produced no usable output; marking failed", {
+        requestId: request.id,
+      });
+      await callUpdateAutoTriageRequest(request.id, "failed");
+      return;
+    }
+
+    log("info", "auto-triage tachikoma produced change set", {
+      requestId: request.id,
+      opCount: triageOut.operations.length,
+    });
+
+    // Full change-set application (via a triage session) is deferred — that
+    // integration requires a `triage_sessions` row which auto_triage_requests
+    // do not automatically create. Marking completed so the row is not retried
+    // indefinitely; the operations are visible in the Tachikoma transcript.
+    await callUpdateAutoTriageRequest(request.id, "completed");
+  } finally {
+    await fs.rm(path.join("/work", ".major", "session.json"), { force: true }).catch(() => undefined);
+    await fs.rm(workspaceDir, { recursive: true, force: true }).catch((err) => {
+      log("warn", "auto-triage workspace cleanup failed", {
+        workspaceDir,
+        error: errToString(err),
+      });
+    });
+  }
+}
+
+async function callListPendingAutoTriageRequests(): Promise<AutoTriageRequest[]> {
+  const restBase = supabaseRestUrl();
+  const params = new URLSearchParams({
+    status: "eq.requested",
+    order: "created_at.asc",
+    limit: "5",
+  });
+  const resp = await fetch(`${restBase}/auto_triage_requests?${params}`, {
+    method: "GET",
+    headers: supabaseRestHeaders({ read: true }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`list auto_triage_requests failed: HTTP ${resp.status}: ${text.slice(0, 300)}`);
+  }
+  return resp.json() as Promise<AutoTriageRequest[]>;
+}
+
+async function callClaimAutoTriageRequest(requestId: number): Promise<AutoTriageRequest | null> {
+  const restBase = supabaseRestUrl();
+  const params = new URLSearchParams({
+    id: `eq.${requestId}`,
+    status: "eq.requested",
+  });
+  const resp = await fetch(`${restBase}/auto_triage_requests?${params}`, {
+    method: "PATCH",
+    headers: {
+      ...supabaseRestHeaders({ read: false }),
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify({ status: "running" }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`claim auto_triage_request failed: HTTP ${resp.status}: ${text.slice(0, 300)}`);
+  }
+  const rows = await resp.json() as AutoTriageRequest[];
+  return rows.length > 0 ? (rows[0] ?? null) : null;
+}
+
+async function callUpdateAutoTriageRequest(
+  requestId: number,
+  status: "completed" | "failed" | "superseded",
+): Promise<void> {
+  const restBase = supabaseRestUrl();
+  const params = new URLSearchParams({ id: `eq.${requestId}` });
+  const resp = await fetch(`${restBase}/auto_triage_requests?${params}`, {
+    method: "PATCH",
+    headers: supabaseRestHeaders({ read: false }),
+    body: JSON.stringify({ status }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`update auto_triage_request failed: HTTP ${resp.status}: ${text.slice(0, 300)}`);
+  }
+}
+
+async function callClaimNextAutoTriageRequest(): Promise<AutoTriageRequest | null> {
+  const candidates = await callListPendingAutoTriageRequests();
+  for (const candidate of candidates) {
+    const claimed = await callClaimAutoTriageRequest(candidate.id);
+    if (claimed) return claimed;
+  }
+  return null;
+}
+
+async function fetchBriefForAutoTriage(briefId: number): Promise<TriageBriefRow | null> {
+  const restBase = supabaseRestUrl();
+  const params = new URLSearchParams({
+    id: `eq.${briefId}`,
+    select: "id,title,status,classifications,git_repository_ref,content_md,current_revision_id",
+  });
+  const resp = await fetch(`${restBase}/briefs?${params}`, {
+    method: "GET",
+    headers: supabaseRestHeaders({ read: true }),
+  });
+  if (!resp.ok) return null;
+  const rows = await resp.json() as TriageBriefRow[];
+  return rows[0] ?? null;
+}
+
+// ────────────────────────────────────────────────────────────────────
 // Run execution: implementer (Phase 1) → CI poll → reviewer (Phase 2)
 // ────────────────────────────────────────────────────────────────────
 
@@ -482,12 +753,6 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
   // 1. Prepare sandbox: clone repo, checkout branch.
   const sandboxDir = await prepareSandbox(claim);
   activeRun.sandboxDir = sandboxDir;
-
-  // /work/.major/ is not (yet) cleaned between Briefs (F-15 — see
-  // docs/plans/001-e2e-reliability-fixes.md). Until that lands, defensively
-  // remove any stale plan.md so a Brief whose Planner gate doesn't match
-  // can't pick up a previous Brief's plan as its own.
-  await fs.rm(path.join("/work", ".major", "plan.md"), { force: true });
 
   const brief: TachikomaBriefSnapshot = {
     id: claim.brief.id,
@@ -542,100 +807,223 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
   const verifications: VerificationPayload[] = [];
   const artifacts: ArtifactPayload[] = [];
 
-  // 1.5. Phase 0 (gated): planner. Per ADR 013 / Phase 1 Decision 1, runs only
-  //      when the Brief benefits from explicit decomposition — multi-path or
-  //      epic/parent classification. Plan is Markdown at /work/.major/plan.md;
-  //      Implementer reads it as context. Verification is advisory per
-  //      Phase 1 Decision 3 — a failed planner subprocess does not park the
-  //      Brief; Implementer still runs.
-  if (shouldRunPlanner(brief)) {
-    log("info", "phase: planner starting", { runId: claim.run.id });
-    const planner = await runSandboxAgent({
-      role: "planner",
+  // 1.5. Pre-check: detect an open PR for this branch before invoking the
+  //      Tachikoma. When a prior Run pushed commits + opened a PR but was
+  //      cancelled before finalization, the Branch already has a PR and
+  //      `gh pr create` in the implementer would fail. Adopting the existing
+  //      PR skips the implementer + planner phases entirely (finding F-16).
+  const featureBranch = `major/brief-${claim.brief.id}`;
+  const preCheckPr = await findExistingPr({
+    sandboxDir,
+    featureBranch,
+    gitRepositoryRef: claim.brief.gitRepositoryRef ?? "",
+  });
+
+  // implementerOk / implementerOutput are set by either the pre-check path
+  // (synthetic) or the normal planner + implementer path below.
+  let implementerOk: boolean;
+  let implementerOutput: ImplementerOutput | null;
+  let implementerExitCode: number;
+  let implementerCompletionEvent: ParsedEvent | undefined;
+
+  if (preCheckPr) {
+    log("info", "existing PR found — adopting and skipping implementer", {
+      runId: claim.run.id,
+      featureBranch,
+      prNumber: preCheckPr.pr_number,
+      prUrl: preCheckPr.pr_url,
+    });
+    implementerOk = true;
+    implementerOutput = {
+      ok: true,
+      pr_url: preCheckPr.pr_url,
+      pr_number: preCheckPr.pr_number,
+      commits: [],
+      files_touched: [],
+      verifications: [],
+    };
+    implementerExitCode = 0;
+    implementerCompletionEvent = undefined;
+    verifications.push({
+      check_name: "tachikoma-implementer",
+      outcome: "pass",
+      required: true,
+      requiredness_source: "artifact-type-policy",
+      payload: {
+        note: "pre-check: adopted existing PR; implementer phase skipped",
+        prNumber: preCheckPr.pr_number,
+      },
+    });
+  } else {
+    // Normal path: optional planner then implementer.
+
+    // Check lease before entering planner / implementer.
+    if (leaseLostFlag) {
+      await abortOnLeaseLost({ claim, verifications, artifacts });
+      return;
+    }
+
+    // 1.5a. Phase 0 (gated): planner. Per ADR 013 / Phase 1 Decision 1, runs
+    //       only when the Brief benefits from explicit decomposition. Plan is
+    //       Markdown at /work/.major/plan.md; Implementer reads it as context.
+    //       Verification is advisory per Phase 1 Decision 3 — a failed planner
+    //       subprocess does not park the Brief; Implementer still runs.
+    if (shouldRunPlanner(brief)) {
+      log("info", "phase: planner starting", { runId: claim.run.id });
+      const planner = await runSandboxAgent({
+        role: "planner",
+        sandboxDir,
+        brief,
+        run: runMeta,
+        onStreamEvent,
+      });
+      log("info", "phase: planner ended", {
+        runId: claim.run.id,
+        ok: planner.ok,
+        exitCode: planner.exitCode,
+        durationMs: planner.durationMs,
+        parseErrors: planner.tachikomaParseErrors,
+      });
+      totalParseErrors += planner.tachikomaParseErrors;
+
+      const plannerOutput = parsePlannerOutput(planner.parsedOutput);
+      verifications.push({
+        check_name: "tachikoma-planner",
+        outcome: planner.ok ? "pass" : "fail",
+        required: false, // advisory per ADR 013 / Phase 1 Decision 3
+        requiredness_source: "artifact-type-policy",
+        payload: {
+          promptVersion: planner.promptVersion,
+          durationMs: planner.durationMs,
+          exitCode: planner.exitCode,
+          transcriptRef: planner.transcriptPath,
+          outputSnippet: planner.stdoutSnippet.slice(-1024),
+          scopeCheck: plannerOutput?.scope_check ?? null,
+          filesPlanned: plannerOutput?.files_planned ?? null,
+          additionalPathsNeeded: plannerOutput?.additional_paths_needed ?? null,
+        },
+      });
+
+      // A *successful* Planner reporting expansion-needed is authoritative —
+      // skip Implementer + Reviewer and route to ready-for-human so a human
+      // can re-Triage. (Distinct from the advisory "planner subprocess failed"
+      // case, which falls through to Implementer per Decision 3.)
+      if (planner.ok && plannerOutput?.scope_check === "expansion-needed") {
+        const earlyTelemetry: TelemetryPayload[] = await readTelemetryJsonl();
+        if (totalParseErrors > 0) {
+          earlyTelemetry.push({
+            observationType: "tachikoma-stream-parse-errors",
+            payload: { count: totalParseErrors, runId: claim.run.id },
+          });
+        }
+        await callFinalizeRun({
+          runId: claim.run.id,
+          briefId: claim.brief.id,
+          outcome: "failed",
+          cancellationReason: null,
+          nextBriefStatus: "ready-for-human",
+          verifications,
+          artifacts: [],
+          telemetry: earlyTelemetry,
+          summary: "planner reported expected-paths-insufficient",
+          tachikomaCompletion: planner.completionEvent?.body,
+        });
+        log("info", "run finalized", {
+          runId: claim.run.id,
+          outcome: "failed",
+          nextStatus: "ready-for-human",
+        });
+        return;
+      }
+
+      // Check lease after planner before starting implementer.
+      if (leaseLostFlag) {
+        const plannerTelemetry = await readTelemetryJsonl();
+        if (totalParseErrors > 0) {
+          plannerTelemetry.push({
+            observationType: "tachikoma-stream-parse-errors",
+            payload: { count: totalParseErrors, runId: claim.run.id },
+          });
+        }
+        await abortOnLeaseLost({ claim, verifications, artifacts });
+        return;
+      }
+    }
+
+    // 2. Phase 1: implementer.
+    log("info", "phase: implementer starting", { runId: claim.run.id });
+    const implementer = await runSandboxAgent({
+      role: "implementer",
       sandboxDir,
       brief,
       run: runMeta,
       onStreamEvent,
     });
-    log("info", "phase: planner ended", {
+    log("info", "phase: implementer ended", {
       runId: claim.run.id,
-      ok: planner.ok,
-      exitCode: planner.exitCode,
-      durationMs: planner.durationMs,
-      parseErrors: planner.tachikomaParseErrors,
+      ok: implementer.ok,
+      exitCode: implementer.exitCode,
+      durationMs: implementer.durationMs,
+      parseErrors: implementer.tachikomaParseErrors,
     });
-    totalParseErrors += planner.tachikomaParseErrors;
+    totalParseErrors += implementer.tachikomaParseErrors;
 
-    const plannerOutput = parsePlannerOutput(planner.parsedOutput);
+    implementerOk = implementer.ok;
+    implementerOutput = parseImplementerOutput(implementer.parsedOutput);
+    implementerExitCode = implementer.exitCode;
+    implementerCompletionEvent = implementer.completionEvent;
+
+    // Verifications: copy implementer's reported checks, plus a meta-check for
+    // the Tachikoma subprocess itself.
     verifications.push({
-      check_name: "tachikoma-planner",
-      outcome: planner.ok ? "pass" : "fail",
-      required: false, // advisory per ADR 013 / Phase 1 Decision 3
+      check_name: "tachikoma-implementer",
+      outcome: implementer.ok ? "pass" : "fail",
+      required: true,
       requiredness_source: "artifact-type-policy",
       payload: {
-        promptVersion: planner.promptVersion,
-        durationMs: planner.durationMs,
-        exitCode: planner.exitCode,
-        transcriptRef: planner.transcriptPath,
-        outputSnippet: planner.stdoutSnippet.slice(-1024),
-        scopeCheck: plannerOutput?.scope_check ?? null,
-        filesPlanned: plannerOutput?.files_planned ?? null,
-        additionalPathsNeeded: plannerOutput?.additional_paths_needed ?? null,
+        promptVersion: implementer.promptVersion,
+        durationMs: implementer.durationMs,
+        exitCode: implementer.exitCode,
+        transcriptRef: implementer.transcriptPath,
+        outputSnippet: implementer.stdoutSnippet.slice(-1024),
       },
     });
+    if (implementerOutput?.verifications) {
+      for (const v of implementerOutput.verifications) {
+        // Normalize first; the implementer can report variants like "n/a" or
+        // "not-applicable" that should fold into "skipped". Then derive
+        // requiredness from the normalized outcome — checking raw v.outcome
+        // misses non-canonical skip variants and keeps required=true on them,
+        // which fails the run for the same reason issue #40 originally did.
+        const normalizedOutcome: "pass" | "fail" | "skipped" =
+          v.outcome === "pass" ? "pass" : v.outcome === "fail" ? "fail" : "skipped";
+        verifications.push({
+          check_name: v.check,
+          outcome: normalizedOutcome,
+          // Skipped checks are advisory: the implementer self-reports `skipped`
+          // only when a check is inapplicable to the diff (e.g. tsc-noemit on a
+          // doc-only diff). Pass/fail outcomes stay required per artifact-type-policy.
+          required: normalizedOutcome !== "skipped",
+          requiredness_source: "artifact-type-policy",
+          payload: { durationMs: v.duration_ms ?? null },
+        });
+      }
+    }
 
-    // A *successful* Planner reporting expansion-needed is authoritative —
-    // skip Implementer + Reviewer and route to ready-for-human so a human can
-    // re-Triage. (Distinct from the advisory "planner subprocess failed"
-    // case, which falls through to Implementer per Decision 3.)
-    if (planner.ok && plannerOutput?.scope_check === "expansion-needed") {
-      const earlyTelemetry: TelemetryPayload[] = await readTelemetryJsonl();
+    // Check lease after implementer (before CI poll + reviewer).
+    if (leaseLostFlag) {
+      const implTelemetry = await readTelemetryJsonl();
       if (totalParseErrors > 0) {
-        earlyTelemetry.push({
+        implTelemetry.push({
           observationType: "tachikoma-stream-parse-errors",
           payload: { count: totalParseErrors, runId: claim.run.id },
         });
       }
-      await callFinalizeRun({
-        runId: claim.run.id,
-        briefId: claim.brief.id,
-        outcome: "failed",
-        cancellationReason: null,
-        nextBriefStatus: "ready-for-human",
-        verifications,
-        artifacts: [],
-        telemetry: earlyTelemetry,
-        summary: "planner reported expected-paths-insufficient",
-        tachikomaCompletion: planner.completionEvent?.body,
-      });
-      log("info", "run finalized", {
-        runId: claim.run.id,
-        outcome: "failed",
-        nextStatus: "ready-for-human",
-      });
+      await abortOnLeaseLost({ claim, verifications, artifacts });
       return;
     }
   }
 
-  // 2. Phase 1: implementer.
-  log("info", "phase: implementer starting", { runId: claim.run.id });
-  const implementer = await runSandboxAgent({
-    role: "implementer",
-    sandboxDir,
-    brief,
-    run: runMeta,
-    onStreamEvent,
-  });
-  log("info", "phase: implementer ended", {
-    runId: claim.run.id,
-    ok: implementer.ok,
-    exitCode: implementer.exitCode,
-    durationMs: implementer.durationMs,
-    parseErrors: implementer.tachikomaParseErrors,
-  });
-  totalParseErrors += implementer.tachikomaParseErrors;
-
-  const implementerOutput = parseImplementerOutput(implementer.parsedOutput);
   activeRun.implementerOutput = implementerOutput;
 
   // Write implementer output to disk so Phase 2 reviewer can read it.
@@ -653,45 +1041,11 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
     });
   }
 
-  // Verifications: copy implementer's reported checks, plus a meta-check for
-  // the Tachikoma subprocess itself.
-  verifications.push({
-    check_name: "tachikoma-implementer",
-    outcome: implementer.ok ? "pass" : "fail",
-    required: true,
-    requiredness_source: "artifact-type-policy",
-    payload: {
-      promptVersion: implementer.promptVersion,
-      durationMs: implementer.durationMs,
-      exitCode: implementer.exitCode,
-      transcriptRef: implementer.transcriptPath,
-      outputSnippet: implementer.stdoutSnippet.slice(-1024),
-    },
-  });
-  if (implementerOutput?.verifications) {
-    for (const v of implementerOutput.verifications) {
-      // Normalize first; the implementer can report variants like "n/a" or
-      // "not-applicable" that should fold into "skipped". Then derive
-      // requiredness from the normalized outcome — checking raw v.outcome
-      // misses non-canonical skip variants and keeps required=true on them,
-      // which fails the run for the same reason issue #40 originally did.
-      const normalizedOutcome: "pass" | "fail" | "skipped" =
-        v.outcome === "pass" ? "pass" : v.outcome === "fail" ? "fail" : "skipped";
-      verifications.push({
-        check_name: v.check,
-        outcome: normalizedOutcome,
-        // Skipped checks are advisory: the implementer self-reports `skipped`
-        // only when a check is inapplicable to the diff (e.g. tsc-noemit on a
-        // doc-only diff). Pass/fail outcomes stay required per artifact-type-policy.
-        required: normalizedOutcome !== "skipped",
-        requiredness_source: "artifact-type-policy",
-        payload: { durationMs: v.duration_ms ?? null },
-      });
-    }
-  }
-
   // 3. If implementer produced a PR, capture it as an artifact and poll CI.
-  if (implementer.ok && implementerOutput?.pr_url && implementerOutput.pr_number) {
+  let reviewerOk = false;
+  let reviewerStatus: "pass" | "fail" | "pending" | null = null;
+
+  if (implementerOk && implementerOutput?.pr_url && implementerOutput.pr_number) {
     artifacts.push({
       artifact_type: "git-change",
       external_ref: implementerOutput.pr_url,
@@ -723,12 +1077,14 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
       outcome: ciResult.outcome,
       durationMs: ciResult.durationMs,
     });
-  }
 
-  // 4. Phase 2: reviewer (only if implementer succeeded with a PR).
-  let reviewerOk = false;
-  let reviewerStatus: "pass" | "fail" | "pending" | null = null;
-  if (implementer.ok && implementerOutput?.pr_url && implementerOutput.pr_number) {
+    // Check lease after CI poll before starting reviewer.
+    if (leaseLostFlag) {
+      await abortOnLeaseLost({ claim, verifications, artifacts });
+      return;
+    }
+
+    // 4. Phase 2: reviewer.
     log("info", "phase: reviewer starting", { runId: claim.run.id });
     const reviewer = await runSandboxAgent({
       role: "reviewer",
@@ -776,11 +1132,11 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
   let cancellationReason: string | null = null;
   let summary: string;
 
-  if (implementer.ok && implementerOutput?.pr_url && allRequiredPassed) {
+  if (implementerOk && implementerOutput?.pr_url && allRequiredPassed) {
     outcome = "succeeded";
     nextStatus = "ready-for-review";
     summary = `implementer ok, PR ${implementerOutput.pr_url}, reviewer ${reviewerStatus ?? "n/a"}`;
-  } else if (implementer.ok && !allRequiredPassed) {
+  } else if (implementerOk && !allRequiredPassed) {
     // PR exists but a required check failed. Park for human review per ADR 012;
     // re-arming ready-for-agent here produced the same tight reclaim loop that
     // bit the exception path before issue #17 (~2 runs/sec). Budgeted retry is
@@ -788,7 +1144,7 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
     outcome = "failed";
     nextStatus = "ready-for-human";
     summary = "required verification failed; parked for human review";
-  } else if (!implementer.ok && implementerOutputBailReason(implementerOutput) === "expected-paths-insufficient") {
+  } else if (!implementerOk && implementerOutputBailReason(implementerOutput) === "expected-paths-insufficient") {
     // Scope bail: not retry-safe; route to human.
     outcome = "failed";
     nextStatus = "ready-for-human";
@@ -799,7 +1155,7 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
     // throws path patched in #17. No retry budget exists yet.
     outcome = "failed";
     nextStatus = "ready-for-human";
-    summary = `implementer failed (exit=${implementer.exitCode})`;
+    summary = `implementer failed (exit=${implementerExitCode})`;
   }
 
   await callFinalizeRun({
@@ -812,7 +1168,7 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
     artifacts,
     telemetry,
     summary,
-    tachikomaCompletion: implementer.completionEvent?.body,
+    tachikomaCompletion: implementerCompletionEvent?.body,
   });
 
   log("info", "run finalized", { runId: claim.run.id, outcome, nextStatus });
@@ -835,12 +1191,27 @@ async function prepareSandbox(claim: ClaimResponse): Promise<string> {
   // runs in finally — but defense-in-depth), nuke it.
   await fs.rm(sandboxDir, { recursive: true, force: true });
 
-  // Clone via HTTPS with the GITHUB_TOKEN; gh-style URL.
-  const cloneUrl = `https://x-access-token:${env.githubToken}@github.com/${repoRef}.git`;
+  // Clone via HTTPS. Use http.extraheader to pass the token so it is never
+  // written to .git/config as part of the remote URL (finding F-15).
+  // The credential helper configured immediately after clone uses the same
+  // GITHUB_TOKEN env var so the Tachikoma subprocess can push and fetch.
+  const cloneUrl = `https://github.com/${repoRef}.git`;
   const baseBranch = claim.brief.baseBranch ?? "dev";
   const featureBranch = `major/brief-${claim.brief.id}`;
 
-  await runShellCmd("git", ["clone", "--depth", "50", cloneUrl, sandboxDir]);
+  await runShellCmd("git", [
+    "-c",
+    `http.extraheader=Authorization: Bearer ${env.githubToken}`,
+    "clone",
+    "--depth",
+    "50",
+    cloneUrl,
+    sandboxDir,
+  ]);
+
+  // Configure gh as the git credential helper so all subsequent git operations
+  // (fetch, push) authenticate via GITHUB_TOKEN without storing it in config.
+  await runShellCmd("git", ["-C", sandboxDir, "config", "credential.helper", "!gh auth git-credential"]);
 
   // `git clone --depth N` implicitly enables `--single-branch`, locking the
   // origin remote's fetch refspec to the default branch only. Subsequent
@@ -880,7 +1251,50 @@ async function branchExistsOnRemote(sandboxDir: string, branch: string): Promise
   }
 }
 
+interface ExistingPrInfo {
+  pr_number: number;
+  pr_url: string;
+}
+
+/**
+ * Check whether an open PR already exists for featureBranch on the remote.
+ * Returns null on any error — the caller treats a non-null result as "PR found"
+ * and skips the implementer phase (finding F-16 retry-safety).
+ */
+async function findExistingPr(args: {
+  sandboxDir: string;
+  featureBranch: string;
+  gitRepositoryRef: string;
+}): Promise<ExistingPrInfo | null> {
+  try {
+    const result = await runShellCmdCapture(
+      "gh",
+      [
+        "pr",
+        "list",
+        "--head",
+        args.featureBranch,
+        "-R",
+        args.gitRepositoryRef,
+        "--state",
+        "open",
+        "--json",
+        "number,url",
+      ],
+      { cwd: args.sandboxDir },
+    );
+    if (result.exitCode !== 0 || result.stdout.trim().length === 0) return null;
+    const prs = JSON.parse(result.stdout) as Array<{ number: number; url: string }>;
+    const pr = prs[0];
+    if (!pr) return null;
+    return { pr_number: pr.number, pr_url: pr.url };
+  } catch {
+    return null;
+  }
+}
+
 async function cleanupSandbox(sandboxDir: string): Promise<void> {
+  // Remove the repo working tree.
   try {
     await fs.rm(sandboxDir, { recursive: true, force: true });
     log("info", "sandbox cleaned up", { sandboxDir });
@@ -890,6 +1304,32 @@ async function cleanupSandbox(sandboxDir: string): Promise<void> {
       error: errToString(err),
     });
   }
+
+  // Remove Brief-execution artifacts from /work/.major/ (finding F-14).
+  // Wipe specific known files rather than the whole directory to avoid
+  // disturbing an in-flight triage session that also writes to this dir.
+  const majorDir = path.join("/work", ".major");
+  const briefFiles = [
+    "brief.json",
+    "plan.md",
+    "implementer-output.json",
+    "telemetry.jsonl",
+  ];
+  for (const f of briefFiles) {
+    await fs.rm(path.join(majorDir, f), { force: true }).catch(() => undefined);
+  }
+  // Remove any transcript files written by runSandboxAgent for this Run.
+  try {
+    const entries = await fs.readdir(majorDir);
+    for (const entry of entries) {
+      if (entry.endsWith(".transcript.txt")) {
+        await fs.rm(path.join(majorDir, entry), { force: true }).catch(() => undefined);
+      }
+    }
+  } catch {
+    // Non-fatal — directory may not exist or be temporarily unreadable.
+  }
+  log("info", ".major Brief artifacts cleaned", { majorDir });
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -911,11 +1351,11 @@ async function waitForCI(args: {
   const deadline = startedAt + CI_POLL_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
-    if (shuttingDown) {
+    if (shuttingDown || leaseLostFlag) {
       return {
         outcome: "skipped",
         durationMs: Date.now() - startedAt,
-        summary: "shutdown during CI wait",
+        summary: shuttingDown ? "shutdown during CI wait" : "lease lost during CI wait",
       };
     }
 
@@ -1069,7 +1509,17 @@ async function callHeartbeat(args: { initial: boolean }): Promise<void> {
   };
   if (activeRun?.runId) body.runId = activeRun.runId;
   void args.initial;
-  await majorApiPost("major-heartbeat", body);
+  const resp = await majorApiPost("major-heartbeat", body) as Record<string, unknown> | null;
+  // renewedRun=false means the Reaper (or another mechanism) has already
+  // cancelled the active Run. Set the abort flag so executeRun stops at the
+  // next safe phase boundary (finding F-10).
+  if (activeRun && resp && resp.renewedRun === false) {
+    log("warn", "heartbeat: renewedRun=false — lease lost; setting abort flag", {
+      runId: activeRun.runId,
+      shellId: env.shellId,
+    });
+    leaseLostFlag = true;
+  }
 }
 
 async function callClaimItem(): Promise<ClaimResponse | null> {
@@ -1461,6 +1911,48 @@ async function gracefulShutdown(): Promise<void> {
     });
   } catch (err) {
     log("error", "graceful shutdown finalize failed; reaper will handle", {
+      error: errToString(err),
+    });
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Lease-loss abort helper
+// ────────────────────────────────────────────────────────────────────
+
+/**
+ * Called at safe phase boundaries when leaseLostFlag is set.  Attempts to
+ * finalize the Run as cancelled (lease-expired); swallows errors because the
+ * Reaper may have already finalized. Returns so the caller can clean up and
+ * exit executeRun normally.
+ */
+async function abortOnLeaseLost(args: {
+  claim: ClaimResponse;
+  verifications: VerificationPayload[];
+  artifacts: ArtifactPayload[];
+}): Promise<void> {
+  log("warn", "lease lost — aborting run at safe boundary", { runId: args.claim.run.id });
+  const telemetry = await readTelemetryJsonl();
+  telemetry.push({
+    observationType: "lease-lost-abort",
+    payload: { shellId: env.shellId, runId: args.claim.run.id },
+  });
+  try {
+    await callFinalizeRun({
+      runId: args.claim.run.id,
+      briefId: args.claim.brief.id,
+      outcome: "cancelled",
+      cancellationReason: "lease-expired",
+      nextBriefStatus: "ready-for-agent",
+      verifications: args.verifications,
+      artifacts: args.artifacts,
+      telemetry,
+      summary: "heartbeat returned renewedRun=false; shell aborted at phase boundary",
+    });
+  } catch (err) {
+    // Reaper finalized before us — that's fine; it already did the right thing.
+    log("warn", "finalize-on-lease-lost failed (reaper may have beaten us)", {
+      runId: args.claim.run.id,
       error: errToString(err),
     });
   }

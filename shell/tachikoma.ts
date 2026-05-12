@@ -119,6 +119,12 @@ const DEFAULT_TIMEOUT_MS_BY_ROLE: Record<TachikomaRole, number> = {
   repair:       8 * 60 * 1000,
 };
 
+// Path resolution note: tsconfig.json sets `"module": "commonjs"`, so tsc
+// compiles this file to CommonJS. In CommonJS, `__dirname` is resolved at
+// runtime to the directory of the executing .js file — /opt/major-shell/dist/
+// after the Dockerfile build. `import.meta.url` is NOT available in CommonJS
+// and must NOT be used here. The paths below are correct for the compiled output.
+
 /** Where prompt sources live on disk inside the container. */
 const PROMPTS_DIR = path.join(__dirname, "prompts");
 
