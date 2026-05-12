@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
 
     if (briefsErr) {
       console.error("[MajorQuickStart] briefs fetch failed:", briefsErr);
-      return errorResponse(briefsErr.message, 500);
+      return errorResponse("Internal server error", 500);
     }
 
     let triaged = 0;
@@ -106,6 +106,6 @@ Deno.serve(async (req) => {
     return jsonResponse({ triaged, readyForAgent });
   } catch (err) {
     console.error("[MajorQuickStart]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });

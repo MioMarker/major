@@ -503,7 +503,8 @@ Deno.serve(async (req) => {
       .order("id", { ascending: true });
 
     if (sessErr) {
-      return errorResponse(sessErr.message, 500);
+      console.error("[major-auto-triage-sessions] sessions fetch failed:", sessErr);
+      return errorResponse("Internal server error", 500);
     }
 
     if (!sessions || sessions.length === 0) {
@@ -537,6 +538,6 @@ Deno.serve(async (req) => {
     });
   } catch (err) {
     console.error("[major-auto-triage-sessions]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });

@@ -42,12 +42,15 @@ Deno.serve(async (req) => {
       .single();
 
     if (lookupErr || !cs) {
-      return errorResponse(lookupErr?.message ?? "change set not found", 404);
+      return errorResponse("Change set not found", 404);
     }
     if (cs.decision !== "proposed") {
       return errorResponse(`Change set already ${cs.decision}`, 409);
     }
 
+    // F-05: The path-blocker is intentionally NOT re-run here because it was
+    // already checked during major-finalize-triage-session. A human apply is a
+    // deliberate override that already went through the blocker at finalization time.
     const { data: applied, error: applyErr } = await auth.client.rpc("apply_change_set", {
       p_change_set_id: body.changeSetId,
       p_actor: auth.actor,
@@ -56,13 +59,13 @@ Deno.serve(async (req) => {
 
     if (applyErr) {
       console.error("[major-apply-change-set] RPC failed:", applyErr);
-      return errorResponse(applyErr.message, 500);
+      return errorResponse("Internal server error", 500);
     }
 
     const result = Array.isArray(applied) ? applied[0] : applied;
     return jsonResponse({ appliedOpCount: result?.applied_op_count ?? 0 });
   } catch (err) {
     console.error("[major-apply-change-set]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });

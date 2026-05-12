@@ -67,7 +67,7 @@ Deno.serve(async (req) => {
     const { data, error, count } = await query;
     if (error) {
       console.error("[major-list-briefs] query failed:", error);
-      return errorResponse(error.message, 500);
+      return errorResponse("Internal server error", 500);
     }
 
     const rows = data ?? [];
@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
     return jsonResponse({ briefs, total: count ?? 0 });
   } catch (err) {
     console.error("[major-list-briefs]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });
 

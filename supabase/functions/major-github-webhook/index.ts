@@ -7,9 +7,9 @@
 //
 // Handles the GitHub webhook events Major cares about:
 //   - pull_request    — opened/reopened/closed/edited; updates pr_status,
-//                       pr_url on the matching Brief via the PR body's
-//                       `Major-brief: <id>` Repository Correlation Receipt.
-//                       On `closed` actions (merged or unmerged), also
+//                       pr_url, pr_derived_facts on the matching Brief via the
+//                       PR body's `Major-brief: <id>` Repository Correlation
+//                       Receipt. On `closed` actions (merged or unmerged), also
 //                       transitions the Brief to a terminal state and
 //                       (when applicable) closes the source GitHub issue
 //                       per ADR 007.
@@ -26,9 +26,9 @@
 // (see functions/config.toml addendum in README.md).
 //
 // `Deno.serve` is wrapped in `if (import.meta.main)` so the test file can
-// `import { handleIssue } from "./index.ts"` without binding a network
-// port. Supabase invokes the function as the module entry point, so
-// `import.meta.main` is `true` in deployment.
+// `import { handleIssue, handlePullRequest } from "./index.ts"` without
+// binding a network port. Supabase invokes the function as the module entry
+// point, so `import.meta.main` is `true` in deployment.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleOptions } from "../_shared/cors.ts";
@@ -38,11 +38,13 @@ import { verifyGithubSignature } from "../_shared/webhook.ts";
 import { deriveIdempotencyKey } from "../_shared/idempotency.ts";
 import { parseBriefIdFromBody } from "./parse-pr-receipt.ts";
 
+// F-17a: Added "tachikoma-implementer" to the known check names set.
 const KNOWN_CHECK_NAMES = new Set([
   "tsc-noemit",
   "tests",
   "eval-gate",
   "reviewer-tachikoma",
+  "tachikoma-implementer",
   "major/review",
 ]);
 
@@ -94,7 +96,7 @@ if (import.meta.main) {
       return jsonResponse({ ok: true });
     } catch (err) {
       console.error("[major-github-webhook]", err);
-      return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+      return errorResponse("Internal server error", 500);
     }
   });
 }
@@ -102,7 +104,7 @@ if (import.meta.main) {
 // ─────────────────────────────────────────────────────────────────
 // pull_request — derive the Brief id from the PR body's correlation receipt
 // ─────────────────────────────────────────────────────────────────
-async function handlePullRequest(
+export async function handlePullRequest(
   client: ReturnType<typeof getAdminClient>,
   payload: any,
   delivery: string,
@@ -113,19 +115,44 @@ async function handlePullRequest(
 
   const briefId = parseBriefIdFromBody(pr.body);
   if (briefId === null) {
+    // F-17c: emit a Telemetry Record for PRs with no correlation receipt so
+    // operators can investigate untracked PRs. Don't process further.
     console.warn(
-      "[major-github-webhook] PR has no `Major-brief:` receipt; skipping",
+      "[major-github-webhook] PR has no `Major-brief:` receipt; emitting telemetry",
       { pr_number: pr.number },
     );
+    await client
+      .from("telemetry")
+      .insert({
+        observation_type: "pr-no-receipt",
+        brief_id: null,
+        run_id: null,
+        idempotency_key: deriveIdempotencyKey(null, "pr-no-receipt", "integration:github", delivery),
+        payload: { pr_number: pr.number, pr_url: pr.html_url as string, delivery },
+      })
+      .select();
     return;
   }
 
   const prStatus = derivePrStatus(action, pr);
   const prUrl = pr.html_url as string;
 
+  // F-17b: include pr_derived_facts alongside pr_status and pr_url.
+  // The pr_derived_facts JSONB column lands with Stream A's migration; the
+  // update compiles now but no-ops at runtime until that column exists.
+  const prDerivedFacts = {
+    mergeable: pr.mergeable ?? null,
+    draft: pr.draft ?? false,
+    requested_reviewer_count: (pr.requested_reviewers ?? []).length,
+    requested_team_count: (pr.requested_teams ?? []).length,
+    additions: pr.additions ?? null,
+    deletions: pr.deletions ?? null,
+    changed_files: pr.changed_files ?? null,
+  };
+
   const { error: updErr } = await client
     .from("briefs")
-    .update({ pr_status: prStatus, pr_url: prUrl })
+    .update({ pr_status: prStatus, pr_url: prUrl, pr_derived_facts: prDerivedFacts })
     .eq("id", briefId);
   if (updErr) console.error("[major-github-webhook] briefs update:", updErr);
 

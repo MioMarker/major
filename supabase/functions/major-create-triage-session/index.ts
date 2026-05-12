@@ -77,11 +77,11 @@ Deno.serve(async (req) => {
 
     if (error) {
       console.error("[major-create-triage-session] insert failed:", error);
-      return errorResponse(error.message, 500);
+      return errorResponse("Internal server error", 500);
     }
     return jsonResponse(data);
   } catch (err) {
     console.error("[major-create-triage-session]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });

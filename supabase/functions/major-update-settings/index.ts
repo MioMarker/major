@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
 
     if (error) {
       console.error("[major-update-settings] update failed:", error);
-      return errorResponse(error.message, 500);
+      return errorResponse("Internal server error", 500);
     }
     if (!data) {
       return errorResponse("Settings not found", 404);
@@ -71,6 +71,6 @@ Deno.serve(async (req) => {
     });
   } catch (err) {
     console.error("[major-update-settings]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });

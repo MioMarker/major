@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
       .select("id")
       .eq("id", body.sessionId)
       .single();
-    if (fetchErr) return errorResponse(fetchErr.message ?? "session not found", 404);
+    if (fetchErr) return errorResponse("Session not found", 404);
 
     // Delete change sets first (operations cascade from change sets via FK).
     const { error: csErr } = await auth.client
@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
       .eq("triage_session_id", body.sessionId);
     if (csErr) {
       console.error("[MajorDeleteTriageSession] change set delete failed:", csErr);
-      return errorResponse(csErr.message, 500);
+      return errorResponse("Internal server error", 500);
     }
 
     // Nullify source_session_id on briefs that were created from this session.
@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
       .eq("source_session_id", body.sessionId);
     if (briefErr) {
       console.error("[MajorDeleteTriageSession] brief nullify failed:", briefErr);
-      return errorResponse(briefErr.message, 500);
+      return errorResponse("Internal server error", 500);
     }
 
     const { error: delErr } = await auth.client
@@ -66,12 +66,12 @@ Deno.serve(async (req) => {
       .eq("id", body.sessionId);
     if (delErr) {
       console.error("[MajorDeleteTriageSession] delete failed:", delErr);
-      return errorResponse(delErr.message, 500);
+      return errorResponse("Internal server error", 500);
     }
 
     return jsonResponse({ sessionId: body.sessionId, deleted: true });
   } catch (err) {
     console.error("[MajorDeleteTriageSession]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });

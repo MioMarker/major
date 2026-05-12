@@ -93,26 +93,30 @@ export async function telemetryWriter(
 // ────────────────────────────────────────────────────────────────────
 // Edge function handler
 // ────────────────────────────────────────────────────────────────────
+// Guard with import.meta.main so the test file can import telemetryWriter
+// without binding a network port.
 
-Deno.serve(async (req) => {
-  const preflight = handleOptions(req);
-  if (preflight) return preflight;
+if (import.meta.main) {
+  Deno.serve(async (req) => {
+    const preflight = handleOptions(req);
+    if (preflight) return preflight;
 
-  if (req.method !== "POST") return errorResponse("Method not allowed", 405);
+    if (req.method !== "POST") return errorResponse("Method not allowed", 405);
 
-  try {
-    const auth = await authenticate(req);
-    if (!auth.ok) return errorResponse(auth.message, auth.status);
+    try {
+      const auth = await authenticate(req);
+      if (!auth.ok) return errorResponse(auth.message, auth.status);
 
-    const parsed = RecordTelemetryRequest.safeParse(await req.json());
-    if (!parsed.success) {
-      return errorResponse(parsed.error.message, 400);
+      const parsed = RecordTelemetryRequest.safeParse(await req.json());
+      if (!parsed.success) {
+        return errorResponse(parsed.error.message, 400);
+      }
+
+      const result = await telemetryWriter(auth.client, parsed.data);
+      return jsonResponse({ record: result.record });
+    } catch (err) {
+      console.error("[MajorRecordTelemetry]", err);
+      return errorResponse("Internal server error", 500);
     }
-
-    const result = await telemetryWriter(auth.client, parsed.data);
-    return jsonResponse({ record: result.record });
-  } catch (err) {
-    console.error("[MajorRecordTelemetry]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
-  }
-});
+  });
+}

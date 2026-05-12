@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
       .select("id, status")
       .eq("id", body.briefId)
       .single();
-    if (fetchErr || !brief) return errorResponse(fetchErr?.message ?? "brief not found", 404);
+    if (fetchErr || !brief) return errorResponse("Brief not found", 404);
     if (brief.status === "agent-running") {
       return errorResponse("Cannot delete a brief while an agent is running on it", 409);
     }
@@ -47,12 +47,12 @@ Deno.serve(async (req) => {
       .eq("id", body.briefId);
     if (delErr) {
       console.error("[MajorDeleteBrief] delete failed:", delErr);
-      return errorResponse(delErr.message, 500);
+      return errorResponse("Internal server error", 500);
     }
 
     return jsonResponse({ briefId: body.briefId, deleted: true });
   } catch (err) {
     console.error("[MajorDeleteBrief]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });

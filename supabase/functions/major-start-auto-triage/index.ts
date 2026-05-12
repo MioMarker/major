@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
       .select("id, current_revision_id")
       .eq("id", body.briefId)
       .single();
-    if (fetchErr || !brief) return errorResponse(fetchErr?.message ?? "brief not found", 404);
+    if (fetchErr || !brief) return errorResponse("Brief not found", 404);
 
     const { data, error } = await auth.client
       .from("auto_triage_requests")
@@ -62,7 +62,7 @@ Deno.serve(async (req) => {
         return errorResponse("A non-terminal auto-triage request already exists for this brief", 409);
       }
       console.error("[major-start-auto-triage] insert failed:", error);
-      return errorResponse(error.message, 500);
+      return errorResponse("Internal server error", 500);
     }
 
     // TODO: enqueue work for the auto-triage worker / Shell. Once the
@@ -72,6 +72,6 @@ Deno.serve(async (req) => {
     return jsonResponse({ requestId: data.id, status: data.status });
   } catch (err) {
     console.error("[major-start-auto-triage]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });

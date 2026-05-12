@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
       .single();
 
     if (fetchErr || !session) {
-      return errorResponse(fetchErr?.message ?? "session not found", 404);
+      return errorResponse("Session not found", 404);
     }
     if (session.status !== "open") {
       return errorResponse("Session is not open", 409);
@@ -70,12 +70,12 @@ Deno.serve(async (req) => {
 
     if (updErr) {
       console.error("[major-send-triage-message] update failed:", updErr);
-      return errorResponse(updErr.message, 500);
+      return errorResponse("Internal server error", 500);
     }
     return jsonResponse({ messages: [humanEntry, agentEntry], draft_prd: nextDraft });
   } catch (err) {
     console.error("[major-send-triage-message]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });
 

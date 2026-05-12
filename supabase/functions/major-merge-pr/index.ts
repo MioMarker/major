@@ -109,7 +109,7 @@ async function writeMergeBlocked(
     .select("id");
   if (updErr) {
     console.error(LOG_PREFIX, "merge-blocked update failed:", updErr);
-    return { ok: false, status: 500, message: updErr.message };
+    return { ok: false, status: 500, message: "Internal server error" };
   }
   if (!updated || updated.length === 0) {
     return {
@@ -171,7 +171,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (fetchErr) {
       console.error(LOG_PREFIX, "brief fetch failed:", fetchErr);
-      return errorResponse(fetchErr.message, 500);
+      return errorResponse("Internal server error", 500);
     }
     if (!brief) return errorResponse("Brief not found", 404);
 
@@ -277,6 +277,6 @@ Deno.serve(async (req) => {
     return jsonResponse(body);
   } catch (err) {
     console.error(LOG_PREFIX, err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });
