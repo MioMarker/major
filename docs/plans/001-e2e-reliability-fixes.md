@@ -1,6 +1,6 @@
 # Plan 001 — End-to-End Reliability Fixes
 
-**Status:** Drafted 2026-05-09. Not started. Awaiting decisions in §2.
+**Status:** Decisions made 2026-05-11 (ADRs 018–021). Stream B in progress (Brief 62, branch `major/brief-62`).
 **Goal:** Close the gaps between SPEC and implementation along the Brief lifecycle (creation → PR → merged) so the system runs reliably end-to-end.
 **Audience:** This plan is meant to be picked up by an agent (or a coordinated set of agents) and executed against the repo. Each work stream is independently grabbable; sequencing is in §4.
 
