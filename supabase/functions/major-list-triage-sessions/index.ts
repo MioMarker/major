@@ -46,16 +46,13 @@ Deno.serve(async (req) => {
     const { data, error } = await query;
     if (error) {
       console.error("[major-list-triage-sessions] select failed:", error);
-      return errorResponse(error.message, 500);
+      return errorResponse("Internal server error", 500);
     }
 
     return jsonResponse(data ?? []);
   } catch (err) {
     console.error("[major-list-triage-sessions]", err);
-    return errorResponse(
-      err instanceof Error ? err.message : "Server error",
-      500,
-    );
+    return errorResponse("Internal server error", 500);
   }
 });
 

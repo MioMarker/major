@@ -19,11 +19,14 @@
 //   1. Insert a `triage_change_sets` row tied to this session.
 //   2. Insert one `triage_change_operations` row per op with derived idem keys.
 //   3. Run the path-blocker rule against (a) every `expected_paths` mentioned
-//      in `create-brief` / transition-to-ready ops and (b) the rerank-op count.
+//      in `create-brief` / set-ready-state / transition-to-ready ops and
+//      (b) the rerank-op count.
 //   4. If `needsHumanApply=true` → mark the change set, return it for the UI
 //      to surface in the Pending QA queue with a "needs human apply" badge.
 //      If false → call `major.apply_change_set` RPC which atomically applies
 //      every op in sequence within a single Postgres transaction.
+//
+// `collectExpectedPaths` is exported for testability.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleOptions } from "../_shared/cors.ts";
@@ -31,8 +34,9 @@ import { authenticate } from "../_shared/auth.ts";
 import { errorResponse, jsonResponse } from "../_shared/response.ts";
 import { checkPathBlocker } from "../_shared/path_blocker.ts";
 import { deriveIdempotencyKey } from "../_shared/idempotency.ts";
+import type { MajorClient } from "../_shared/auth.ts";
 
-interface ChangeOp {
+export interface ChangeOp {
   operation_type: string;
   payload: Record<string, unknown>;
   sequence_index: number;
@@ -44,6 +48,73 @@ interface FinalizeBody {
   operations: ChangeOp[];
 }
 
+// F-04: Collect the union of expected_paths that the path-blocker must check.
+//
+// Rules (per ADR 018 — JSONB payload keys are snake_case):
+//   - create-brief ops: read expected_paths from op.payload (camelCase fallback per D1 risk).
+//   - set-ready-state ops: read expected_paths from op.payload.
+//   - transition-brief ops with to === "ready-for-agent": batch-query the DB
+//     for the Brief's current expected_paths (fail-closed on DB error).
+//
+// Returns a promise that rejects on DB query failure so callers can return 500.
+export async function collectExpectedPaths(
+  ops: ChangeOp[],
+  client: MajorClient,
+): Promise<string[]> {
+  const paths: string[] = [];
+  const transitionBriefIds: number[] = [];
+
+  for (const op of ops) {
+    if (op.operation_type === "create-brief" || op.operation_type === "set-ready-state") {
+      // ADR 018: JSONB keys are snake_case; camelCase as fallback for mixed states.
+      const rawPaths = (op.payload?.expected_paths ?? op.payload?.expectedPaths ?? []) as unknown;
+      if (Array.isArray(rawPaths)) {
+        paths.push(...rawPaths.filter((p): p is string => typeof p === "string"));
+      }
+    }
+
+    if (op.operation_type === "transition-brief") {
+      // ADR 018: payload key is "to_status" (snake_case; matches the
+      // apply_change_set RPC at v_payload->>'to_status'). The earlier "to"
+      // spelling was a contract mismatch that silently dropped every
+      // transition op from the aggregator (Brief-61 review).
+      const toStatus = op.payload?.to_status as string | undefined;
+      if (toStatus === "ready-for-agent") {
+        // ADR 018: brief_id is snake_case in JSONB; camelCase fallback for safety.
+        const briefId = (op.payload?.brief_id ?? op.payload?.briefId) as number | undefined;
+        if (typeof briefId === "number") {
+          transitionBriefIds.push(briefId);
+        }
+      }
+    }
+  }
+
+  // Batch-query expected_paths for all transition-brief → ready-for-agent ops.
+  // Fail-closed: if the DB query fails, we reject so the caller returns 500
+  // rather than skipping the path-blocker check.
+  if (transitionBriefIds.length > 0) {
+    const uniqueIds = [...new Set(transitionBriefIds)];
+    const { data, error } = await client
+      .from("briefs")
+      .select("id, expected_paths")
+      .in("id", uniqueIds);
+
+    if (error) {
+      throw new Error(`Failed to fetch expected_paths for transition-brief ops: ${error.message}`);
+    }
+
+    for (const brief of data ?? []) {
+      const briefPaths = brief.expected_paths as string[] | null;
+      if (Array.isArray(briefPaths)) {
+        paths.push(...briefPaths);
+      }
+    }
+  }
+
+  return paths;
+}
+
+if (import.meta.main) {
 Deno.serve(async (req) => {
   const preflight = handleOptions(req);
   if (preflight) return preflight;
@@ -83,7 +154,8 @@ Deno.serve(async (req) => {
         .select("id, needs_human_apply, blocker_reasons")
         .single();
       if (emptyErr || !emptySet) {
-        return errorResponse(emptyErr?.message ?? "change set insert failed", 500);
+        console.error("[major-finalize-triage-session] empty change set insert failed:", emptyErr);
+        return errorResponse("Internal server error", 500);
       }
       await auth.client
         .from("triage_sessions")
@@ -108,21 +180,20 @@ Deno.serve(async (req) => {
       return errorResponse("path_blocker_config missing", 500);
     }
 
-    // Aggregate `expected_paths` across create-brief + transition-to-ready ops,
-    // and count rerank ops for the mass-rerank threshold check.
-    const expectedPaths: string[] = [];
-    let rerankOpCount = 0;
-    for (const op of body.operations) {
-      if (op.operation_type === "create-brief") {
-        const paths = (op.payload?.expected_paths ?? []) as unknown;
-        if (Array.isArray(paths)) expectedPaths.push(...paths.filter((p): p is string => typeof p === "string"));
-      }
-      if (op.operation_type === "transition-brief" && op.payload?.to_status === "ready-for-agent") {
-        const paths = (op.payload?.expected_paths ?? []) as unknown;
-        if (Array.isArray(paths)) expectedPaths.push(...paths.filter((p): p is string => typeof p === "string"));
-      }
-      if (op.operation_type === "set-queue-rank") rerankOpCount++;
+    // F-04: Aggregate expected_paths across all op types using the corrected
+    // aggregation logic. Fail-closed if the DB query for transition-brief paths fails.
+    let expectedPaths: string[];
+    try {
+      expectedPaths = await collectExpectedPaths(body.operations, auth.client);
+    } catch (err) {
+      console.error("[major-finalize-triage-session] collectExpectedPaths failed:", err);
+      return errorResponse("Internal server error", 500);
     }
+
+    // Count rerank ops for the mass-rerank threshold check.
+    const rerankOpCount = body.operations.filter(
+      (op) => op.operation_type === "set-queue-rank",
+    ).length;
 
     const blocker = checkPathBlocker(expectedPaths, rerankOpCount, {
       protectedGlobs: cfg.protected_globs,
@@ -144,7 +215,7 @@ Deno.serve(async (req) => {
 
     if (setErr || !changeSet) {
       console.error("[major-finalize-triage-session] change set insert failed:", setErr);
-      return errorResponse(setErr?.message ?? "change set insert failed", 500);
+      return errorResponse("Internal server error", 500);
     }
 
     // Insert each op with derived idempotency key.
@@ -168,7 +239,7 @@ Deno.serve(async (req) => {
 
     if (opsErr) {
       console.error("[major-finalize-triage-session] op insert failed:", opsErr);
-      return errorResponse(opsErr.message, 500);
+      return errorResponse("Internal server error", 500);
     }
 
     // Close the session — the conversation is settled, this Change Set is its outcome.
@@ -196,7 +267,7 @@ Deno.serve(async (req) => {
 
     if (applyErr) {
       console.error("[major-finalize-triage-session] apply RPC failed:", applyErr);
-      return errorResponse(applyErr.message, 500);
+      return errorResponse("Internal server error", 500);
     }
 
     const result = Array.isArray(applied) ? applied[0] : applied;
@@ -208,6 +279,7 @@ Deno.serve(async (req) => {
     });
   } catch (err) {
     console.error("[major-finalize-triage-session]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });
+}

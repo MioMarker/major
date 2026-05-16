@@ -61,14 +61,18 @@ Deno.serve(async (req) => {
     const lease = body.leaseMinutes && body.leaseMinutes > 0 ? body.leaseMinutes : 5;
     const purpose = body.purpose ?? "execute";
 
-    // Idempotency: a run that retries this call (e.g., timeout from Shell
-    // side) should produce a deterministic key inside the RPC. We seed with
-    // the Shell id + a request-scoped UUID; replays with the same id are no-ops.
+    // F-06: Deterministic idempotency key so HTTP-timeout retries from the
+    // Shell don't spawn orphan Runs. For specific-brief claims the brief id
+    // is the stable seed; for next-eligible claims the UTC minute is stable
+    // within a typical HTTP retry window (Stream B will enforce at RPC layer).
+    const idemSeed = body.briefId != null
+      ? `brief-${body.briefId}`
+      : `next-${new Date().toISOString().slice(0, 16)}`;
     const idem = deriveIdempotencyKey(
       body.briefId ?? null,
       "claim-attempt",
       `shell:${body.shellId}`,
-      crypto.randomUUID(),
+      idemSeed,
     );
 
     // Make sure the Shell row exists. The RPC has a FK on the Shell id.
@@ -86,7 +90,7 @@ Deno.serve(async (req) => {
 
     if (error) {
       console.error("[major-claim-brief] RPC failed:", error);
-      return errorResponse(error.message, 500);
+      return errorResponse("Internal server error", 500);
     }
 
     const row = Array.isArray(data) ? data[0] : data;
@@ -108,10 +112,12 @@ Deno.serve(async (req) => {
     ]);
 
     if (briefRes.error || !briefRes.data) {
-      return errorResponse(`briefs lookup failed: ${briefRes.error?.message ?? "no row"}`, 500);
+      console.error("[major-claim-brief] briefs lookup failed:", briefRes.error);
+      return errorResponse("Internal server error", 500);
     }
     if (runRes.error || !runRes.data) {
-      return errorResponse(`runs lookup failed: ${runRes.error?.message ?? "no row"}`, 500);
+      console.error("[major-claim-brief] runs lookup failed:", runRes.error);
+      return errorResponse("Internal server error", 500);
     }
 
     const brief = briefRes.data;
@@ -153,6 +159,6 @@ Deno.serve(async (req) => {
     });
   } catch (err) {
     console.error("[major-claim-brief]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });

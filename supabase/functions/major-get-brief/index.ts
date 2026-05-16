@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
     ]);
 
     if (brief.error || !brief.data) {
-      return errorResponse(brief.error?.message ?? "brief not found", 404);
+      return errorResponse("Brief not found", 404);
     }
 
     // Verification results + telemetry records scoped to this Brief's runs.
@@ -148,6 +148,6 @@ Deno.serve(async (req) => {
     });
   } catch (err) {
     console.error("[major-get-brief]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });

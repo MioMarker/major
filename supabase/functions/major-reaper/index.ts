@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
     const { data, error } = await client.rpc("reaper_sweep");
     if (error) {
       console.error("[major-reaper] sweep failed:", error);
-      return errorResponse(error.message, 500);
+      return errorResponse("Internal server error", 500);
     }
     const row = Array.isArray(data) ? data[0] : data;
     return jsonResponse({
@@ -44,6 +44,6 @@ Deno.serve(async (req) => {
     });
   } catch (err) {
     console.error("[major-reaper]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });

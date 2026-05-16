@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
 
     if (upsertResult.error) {
       console.error("[major-heartbeat] shells upsert error:", upsertResult.error);
-      return errorResponse(`upsert failed: ${upsertResult.error.message} (code=${upsertResult.error.code ?? "?"})`, 500);
+      return errorResponse("Internal server error", 500);
     }
     console.log("[major-heartbeat] upserted shell row:", upsertResult.data?.length ?? 0, "rows");
 
@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
 
     if (error) {
       console.error("[major-heartbeat] update failed:", error);
-      return errorResponse(error.message, 500);
+      return errorResponse("Internal server error", 500);
     }
     if (!data) {
       return jsonResponse({ renewedRun: false, leaseExpiresAt: null });
@@ -76,6 +76,6 @@ Deno.serve(async (req) => {
     return jsonResponse({ renewedRun: true, leaseExpiresAt: data.lease_expires_at });
   } catch (err) {
     console.error("[major-heartbeat]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });

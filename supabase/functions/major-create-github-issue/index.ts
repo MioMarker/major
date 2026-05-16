@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
       .single();
 
     if (sessionErr || !session) {
-      return errorResponse(sessionErr?.message ?? "Triage session not found", 404);
+      return errorResponse("Triage session not found", 404);
     }
 
     const draftPrd: string = session.draft_prd ?? "";
@@ -87,13 +87,13 @@ Deno.serve(async (req) => {
       return errorResponse(`GitHub API error: ${res.status}`, 502);
     }
 
-    const parsed = GithubIssueResponse.safeParse(await res.json());
-    if (!parsed.success) {
+    const ghParsed = GithubIssueResponse.safeParse(await res.json());
+    if (!ghParsed.success) {
       return errorResponse("Unexpected GitHub API response shape", 502);
     }
-    return jsonResponse({ url: parsed.data.html_url, number: parsed.data.number });
+    return jsonResponse({ url: ghParsed.data.html_url, number: ghParsed.data.number });
   } catch (err) {
     console.error("[MajorCreateGithubIssue]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });

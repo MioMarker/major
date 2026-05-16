@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
       .select("id, status")
       .eq("id", body.briefId)
       .single();
-    if (fetchErr || !prev) return errorResponse(fetchErr?.message ?? "brief not found", 404);
+    if (fetchErr || !prev) return errorResponse("Brief not found", 404);
     if (prev.status !== "ready-for-human") {
       return errorResponse(
         `Brief status is '${prev.status}'; re-arm requires 'ready-for-human'`,
@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
       .select("id");
     if (updErr) {
       console.error("[major-rearm-brief] update failed:", updErr);
-      return errorResponse(updErr.message, 500);
+      return errorResponse("Internal server error", 500);
     }
     if (!updated || updated.length === 0) {
       return errorResponse("Brief status changed concurrently; refresh and retry", 409);
@@ -99,6 +99,6 @@ Deno.serve(async (req) => {
     return jsonResponse({ briefId: body.briefId, status: "ready-for-agent" });
   } catch (err) {
     console.error("[major-rearm-brief]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });

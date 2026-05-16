@@ -118,6 +118,6 @@ Deno.serve(async (req) => {
     return jsonResponse(filtered);
   } catch (err) {
     console.error("[MajorListExternalIssues]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
 });
