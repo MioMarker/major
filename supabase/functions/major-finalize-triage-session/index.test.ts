@@ -104,14 +104,14 @@ Deno.test("transition-brief op to ready-for-agent → DB lookup returns brief's 
   const { client } = makeMockClient({
     briefRows: [{ id: 7, expected_paths: ["supabase/functions/major-foo/**"] }],
   });
-  const ops = [makeOp("transition-brief", { to: "ready-for-agent", brief_id: 7 })];
+  const ops = [makeOp("transition-brief", { to_status: "ready-for-agent", brief_id: 7 })];
   const paths = await collectExpectedPaths(ops, client);
   assertEquals(paths, ["supabase/functions/major-foo/**"]);
 });
 
 Deno.test("transition-brief op to wontfix → no paths collected, no DB query", async () => {
   const { client, getBriefQueryCallCount } = makeMockClient();
-  const ops = [makeOp("transition-brief", { to: "wontfix", brief_id: 7 })];
+  const ops = [makeOp("transition-brief", { to_status: "wontfix", brief_id: 7 })];
   const paths = await collectExpectedPaths(ops, client);
   assertEquals(paths, []);
   assertEquals(getBriefQueryCallCount(), 0, "DB should not be queried for non-agent transitions");
@@ -125,8 +125,8 @@ Deno.test("multiple transition-brief ops → single batch DB query (not N calls)
     ],
   });
   const ops = [
-    makeOp("transition-brief", { to: "ready-for-agent", brief_id: 1 }, 0),
-    makeOp("transition-brief", { to: "ready-for-agent", brief_id: 2 }, 1),
+    makeOp("transition-brief", { to_status: "ready-for-agent", brief_id: 1 }, 0),
+    makeOp("transition-brief", { to_status: "ready-for-agent", brief_id: 2 }, 1),
   ];
   const paths = await collectExpectedPaths(ops, client);
   assertEquals(getBriefQueryCallCount(), 1, "must issue exactly one batch DB query");
@@ -138,7 +138,7 @@ Deno.test("DB query failure → promise rejects (fail-closed)", async () => {
   const { client } = makeMockClient({
     briefQueryError: { message: "connection refused" },
   });
-  const ops = [makeOp("transition-brief", { to: "ready-for-agent", brief_id: 5 })];
+  const ops = [makeOp("transition-brief", { to_status: "ready-for-agent", brief_id: 5 })];
   let threw = false;
   try {
     await collectExpectedPaths(ops, client);
@@ -155,7 +155,7 @@ Deno.test("mixed ops: create-brief + set-ready-state + transition-brief → all 
   const ops = [
     makeOp("create-brief", { expected_paths: ["src/a.ts"] }),
     makeOp("set-ready-state", { expected_paths: ["src/b.ts"] }),
-    makeOp("transition-brief", { to: "ready-for-agent", brief_id: 10 }),
+    makeOp("transition-brief", { to_status: "ready-for-agent", brief_id: 10 }),
   ];
   const paths = await collectExpectedPaths(ops, client);
   assert(paths.includes("src/a.ts"));

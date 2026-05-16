@@ -77,7 +77,7 @@ function makeMockClient(_opts: MockOpts = {}) {
           });
         } else if (table === "events" && ctx.op === "insert") {
           recorded.push({ kind: "event-insert", row: { ...ctx.insertRow } });
-        } else if (table === "telemetry" && ctx.op === "insert") {
+        } else if (table === "telemetry_records" && ctx.op === "insert") {
           recorded.push({ kind: "telemetry-insert", row: { ...ctx.insertRow } });
         } else {
           recorded.push({ kind: "other", table, op: ctx.op ?? "unknown" });

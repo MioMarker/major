@@ -74,8 +74,11 @@ export async function collectExpectedPaths(
     }
 
     if (op.operation_type === "transition-brief") {
-      // ADR 018: payload key is "to" (snake_case — single word, same in any casing).
-      const toStatus = op.payload?.to as string | undefined;
+      // ADR 018: payload key is "to_status" (snake_case; matches the
+      // apply_change_set RPC at v_payload->>'to_status'). The earlier "to"
+      // spelling was a contract mismatch that silently dropped every
+      // transition op from the aggregator (Brief-61 review).
+      const toStatus = op.payload?.to_status as string | undefined;
       if (toStatus === "ready-for-agent") {
         // ADR 018: brief_id is snake_case in JSONB; camelCase fallback for safety.
         const briefId = (op.payload?.brief_id ?? op.payload?.briefId) as number | undefined;

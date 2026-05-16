@@ -122,7 +122,7 @@ export async function handlePullRequest(
       { pr_number: pr.number },
     );
     await client
-      .from("telemetry")
+      .from("telemetry_records")
       .insert({
         observation_type: "pr-no-receipt",
         brief_id: null,
