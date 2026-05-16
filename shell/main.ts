@@ -231,11 +231,12 @@ async function mainLoop(): Promise<void> {
       }
     } finally {
       const sb = activeRun?.sandboxDir;
+      const rid = activeRun?.runId;
       activeRun = null;
       // Reset lease-lost flag so a stale signal from this Run does not
       // contaminate the next claimed Brief.
       leaseLostFlag = false;
-      if (sb) await cleanupSandbox(sb);
+      if (sb && rid != null) await cleanupSandbox(sb, rid);
     }
   }
 }
@@ -1191,23 +1192,26 @@ async function prepareSandbox(claim: ClaimResponse): Promise<string> {
   // runs in finally — but defense-in-depth), nuke it.
   await fs.rm(sandboxDir, { recursive: true, force: true });
 
-  // Clone via HTTPS. Use http.extraheader to pass the token so it is never
-  // written to .git/config as part of the remote URL (finding F-15).
-  // The credential helper configured immediately after clone uses the same
-  // GITHUB_TOKEN env var so the Tachikoma subprocess can push and fetch.
+  // Clone via HTTPS. Pass the token via GIT_CONFIG_COUNT/_KEY_0/_VALUE_0
+  // env vars instead of `-c http.extraheader=...` so the token never appears
+  // in /proc/<pid>/cmdline for the duration of the clone (Brief-60 review,
+  // extending finding F-15). The token still appears in /proc/<pid>/environ
+  // — same surface as the existing process.env exposure — but is not picked
+  // up by `ps` and similar tools by default. The credential helper
+  // configured immediately after clone uses the same GITHUB_TOKEN env var
+  // so the Tachikoma subprocess can push and fetch.
   const cloneUrl = `https://github.com/${repoRef}.git`;
   const baseBranch = claim.brief.baseBranch ?? "dev";
   const featureBranch = `major/brief-${claim.brief.id}`;
 
-  await runShellCmd("git", [
-    "-c",
-    `http.extraheader=Authorization: Bearer ${env.githubToken}`,
-    "clone",
-    "--depth",
-    "50",
-    cloneUrl,
-    sandboxDir,
-  ]);
+  await runShellCmd("git", ["clone", "--depth", "50", cloneUrl, sandboxDir], {
+    env: {
+      ...process.env,
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "http.extraheader",
+      GIT_CONFIG_VALUE_0: `Authorization: Bearer ${env.githubToken}`,
+    },
+  });
 
   // Configure gh as the git credential helper so all subsequent git operations
   // (fetch, push) authenticate via GITHUB_TOKEN without storing it in config.
@@ -1293,7 +1297,7 @@ async function findExistingPr(args: {
   }
 }
 
-async function cleanupSandbox(sandboxDir: string): Promise<void> {
+async function cleanupSandbox(sandboxDir: string, runId: number): Promise<void> {
   // Remove the repo working tree.
   try {
     await fs.rm(sandboxDir, { recursive: true, force: true });
@@ -1318,18 +1322,19 @@ async function cleanupSandbox(sandboxDir: string): Promise<void> {
   for (const f of briefFiles) {
     await fs.rm(path.join(majorDir, f), { force: true }).catch(() => undefined);
   }
-  // Remove any transcript files written by runSandboxAgent for this Run.
-  try {
-    const entries = await fs.readdir(majorDir);
-    for (const entry of entries) {
-      if (entry.endsWith(".transcript.txt")) {
-        await fs.rm(path.join(majorDir, entry), { force: true }).catch(() => undefined);
-      }
-    }
-  } catch {
-    // Non-fatal — directory may not exist or be temporarily unreadable.
+  // Remove only this Run's transcripts, scoped by runId. Concurrent triage
+  // or auto-triage loops use different runIds, so their transcripts are
+  // left alone (Brief-60 review). Naming matches runSandboxAgent's
+  // `<role>.<runId>.transcript.txt` convention in shell/tachikoma.ts.
+  const runTranscripts = [
+    `planner.${runId}.transcript.txt`,
+    `implementer.${runId}.transcript.txt`,
+    `reviewer.${runId}.transcript.txt`,
+  ];
+  for (const f of runTranscripts) {
+    await fs.rm(path.join(majorDir, f), { force: true }).catch(() => undefined);
   }
-  log("info", ".major Brief artifacts cleaned", { majorDir });
+  log("info", ".major Brief artifacts cleaned", { majorDir, runId });
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -1972,7 +1977,11 @@ interface ShellCmdCapture {
   stderr: string;
 }
 
-async function runShellCmd(cmd: string, args: string[], opts: { cwd?: string } = {}): Promise<void> {
+async function runShellCmd(
+  cmd: string,
+  args: string[],
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
+): Promise<void> {
   const { exitCode, stderr } = await runShellCmdCapture(cmd, args, opts);
   if (exitCode !== 0) {
     throw new Error(`${cmd} ${args.join(" ")} exited ${exitCode}: ${stderr.slice(0, 500)}`);
@@ -1982,12 +1991,12 @@ async function runShellCmd(cmd: string, args: string[], opts: { cwd?: string } =
 async function runShellCmdCapture(
   cmd: string,
   args: string[],
-  opts: { cwd?: string } = {},
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
 ): Promise<ShellCmdCapture> {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, {
       cwd: opts.cwd,
-      env: process.env,
+      env: opts.env ?? process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
