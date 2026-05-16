@@ -49,10 +49,35 @@ npx -y supabase secrets set GITHUB_APP_TOKEN=<token>
 ### 1.4 Deploy edge functions
 
 ```bash
-for fn in major-create-triage-session major-send-triage-message major-finalize-triage-session \
-          major-apply-change-set major-list-briefs major-get-brief major-claim-brief \
-          major-finalize-run major-heartbeat major-github-webhook major-confirm-qa \
-          major-reject-brief major-start-auto-triage major-reaper; do
+for fn in \
+  major-apply-change-set \
+  major-auto-triage-sessions \
+  major-claim-brief \
+  major-confirm-qa \
+  major-create-github-issue \
+  major-create-triage-session \
+  major-delete-brief \
+  major-delete-triage-session \
+  major-finalize-run \
+  major-finalize-triage-session \
+  major-get-brief \
+  major-get-settings \
+  major-get-triage-session \
+  major-github-webhook \
+  major-heartbeat \
+  major-import-external-issues \
+  major-list-briefs \
+  major-list-external-issues \
+  major-list-triage-sessions \
+  major-merge-pr \
+  major-quick-start \
+  major-reaper \
+  major-rearm-brief \
+  major-record-telemetry \
+  major-reject-brief \
+  major-send-triage-message \
+  major-start-auto-triage \
+  major-update-settings; do
   npx -y supabase functions deploy "$fn"
 done
 ```
@@ -372,6 +397,14 @@ Expected:
 **All six checks passing confirms the full inbound pipeline is operational.**
 
 If any check fails, emit a telemetry record in `major.telemetry_records` with `observation_type = 'external-system-error'` and the failed step, then file a GitHub issue titled `Security: inbound-trigger-check-<N>-failed` or the appropriate label so the post-incident review has a tracking record.
+
+### Smoke test log
+
+Record each execution of this procedure here with date, who ran it, outcome, and any corrective actions taken.
+
+| Date | Who | Outcome | Notes |
+|---|---|---|---|
+| 2026-05-12 | Tachikoma implementer (run 10648, Brief 57) | Code review only — live test not run from sandbox | Verified webhook label constant `"needs-triage"`, `initiator_actor = "integration:github"`, and `trigger_payload` field names all match the Check 1–6 queries. Found §1.4 deploy loop was missing 14 functions added since initial authoring (including `major-auto-triage-sessions`, `major-rearm-brief`, `major-record-telemetry`, and others); deploy list corrected in this PR. A live end-to-end run against the dev environment should be performed manually to validate Check 3 (auto-triage session processing) before next Shell boot. |
 
 ### 2.7 Monthly operator checklist
 
