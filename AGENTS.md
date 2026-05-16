@@ -42,7 +42,7 @@ The component vocabulary (Brief / Shell / Cyberbrain / Tachikoma) follows ADR 00
 - Trunk-based; branch off `dev`, PR back to `dev`. `main` is release.
 - Two devs jointly review (`@Pioneer18` + `@kuvekep14`). Author cannot self-approve.
 - Linear history (squash or rebase merge); no merge commits to `dev`.
-- `dev` and `main` both have rulesets: required PR, required code-owner review, no force-push.
+- `dev` and `main` both have rulesets: required PR, no force-push. Code-owner review is NOT required on `dev` — any non-author with write access can satisfy the 1-approval gate (per ADR 015).
 - Agent-assisted commits get the `Co-Authored-By: Claude ...` footer.
 - Issue → Triage Session → Briefs → PR. Auto-triage queue path-blocker rule is the only auto-apply path.
 
