@@ -58,6 +58,32 @@ drop function if exists major.finalize_run(
 );
 
 -- ═══════════════════════════════════════════════════════════════
+-- brief_paths_blocked — server-side path-blocker check
+-- ═══════════════════════════════════════════════════════════════
+-- v1 server-side path-blocker check (F-04 / Plan 001 Stream B task 3,
+-- Hard Rule 5 defense-in-depth). The precise check lives in TS at
+-- supabase/functions/_shared/path_blocker.ts; this SQL helper uses a
+-- coarse LIKE translation (`**` / `*` → `%`) sufficient for the current
+-- protected glob vocabulary. If protected_globs ever contain literal
+-- `_` or `?`, expand the translation accordingly.
+
+create or replace function major.brief_paths_blocked(p_brief_id bigint)
+returns boolean
+language sql stable as $$
+  select exists (
+    select 1
+    from major.briefs b
+    cross join lateral unnest(coalesce(b.expected_paths, array[]::text[])) as ep
+    cross join lateral (
+      select protected_globs from major.path_blocker_config where id = 1
+    ) as cfg
+    cross join lateral unnest(cfg.protected_globs) as pg
+    where b.id = p_brief_id
+      and ep like replace(replace(pg, '**', '%'), '*', '%')
+  );
+$$;
+
+-- ═══════════════════════════════════════════════════════════════
 -- claim_next_brief — Run Start Transaction (v2)
 -- ═══════════════════════════════════════════════════════════════
 
@@ -83,11 +109,15 @@ declare
 begin
   -- Idempotent-retry: if this Shell already claimed a Brief under this key,
   -- return the existing Run instead of creating a duplicate (F-06).
+  -- The `outcome = 'running'` filter prevents the retry from resurrecting
+  -- a Run the Reaper has already cancelled — without it, the Shell would
+  -- proceed with work `finalize_run` will reject (Brief-62 review).
   select r.brief_id, r.id, r.started_against_revision_id
   into v_brief_id, v_run_id, v_revision
   from major.runs r
   where r.shell_id = p_shell_id
     and r.claim_idempotency_key = v_idem
+    and r.outcome = 'running'
   limit 1;
 
   if found then
@@ -572,11 +602,24 @@ begin
       v_target_status := case when (v_payload->>'ready')::boolean
                               then 'ready-for-agent' else 'ready-for-triage' end;
 
+      -- F-04 server-side path-blocker check (defense-in-depth, Hard Rule 5).
+      -- The edge function layer should have gated this; raising here catches
+      -- any caller that bypasses the gate. Camelcase no-op preserved because
+      -- brief_paths_blocked returns false for NULL brief_id.
+      if v_target_status = 'ready-for-agent'
+         and major.brief_paths_blocked((v_payload->>'brief_id')::bigint) then
+        raise exception 'path-blocker violation on set-ready-state: brief % expected_paths intersect protected_globs (Hard Rule 5)',
+          v_payload->>'brief_id';
+      end if;
+
       -- Transition validation (F-22): only fires when the Brief exists.
       -- camelCase payloads resolve to NULL brief_id → 0-row query → NOT FOUND
       -- → validation skipped → UPDATE affects 0 rows → silent no-op (as before).
+      -- FOR UPDATE mirrors finalize_run lock ordering so validation can't race
+      -- a concurrent status change (Brief-62 review).
       select status into v_current_status
-      from major.briefs where id = (v_payload->>'brief_id')::bigint;
+      from major.briefs where id = (v_payload->>'brief_id')::bigint
+      for update;
 
       if found then
         if v_target_status not in (
@@ -633,11 +676,22 @@ begin
       where id = v_op.id;
 
     elsif v_op.operation_type = 'transition-brief' then
+      -- F-04 server-side path-blocker check (defense-in-depth, Hard Rule 5).
+      -- Only fires when transitioning to ready-for-agent (the only state where
+      -- a Shell can claim the Brief).
+      if v_payload->>'to_status' = 'ready-for-agent'
+         and major.brief_paths_blocked((v_payload->>'brief_id')::bigint) then
+        raise exception 'path-blocker violation on transition-brief: brief % expected_paths intersect protected_globs (Hard Rule 5)',
+          v_payload->>'brief_id';
+      end if;
+
       -- Transition validation (F-22): only fires when the Brief exists.
       -- camelCase payloads resolve to NULL brief_id → NOT FOUND → validation
       -- skipped → UPDATE affects 0 rows → silent no-op (acceptance criterion).
+      -- FOR UPDATE mirrors finalize_run lock ordering (Brief-62 review).
       select status into v_current_status
-      from major.briefs where id = (v_payload->>'brief_id')::bigint;
+      from major.briefs where id = (v_payload->>'brief_id')::bigint
+      for update;
 
       if found then
         if v_payload->>'to_status' not in (
