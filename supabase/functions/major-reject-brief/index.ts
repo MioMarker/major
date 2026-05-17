@@ -16,6 +16,10 @@ import { authenticate } from "../_shared/auth.ts";
 import { errorResponse, jsonResponse } from "../_shared/response.ts";
 import { deriveIdempotencyKey } from "../_shared/idempotency.ts";
 import type { MajorClient } from "../_shared/auth.ts";
+import {
+  postResolutionAndClose,
+  type ResolutionVerification,
+} from "../_shared/github-issue.ts";
 
 interface RejectBody {
   briefId: number;
@@ -30,7 +34,7 @@ export async function rejectBriefCore(
 ): Promise<Response> {
   const { data: prev, error: fetchErr } = await client
     .from("briefs")
-    .select("id, status")
+    .select("id, status, source_issue_repo, source_issue_number, title, pr_url")
     .eq("id", briefId)
     .single();
   if (fetchErr) {
@@ -75,7 +79,78 @@ export async function rejectBriefCore(
     },
   ]);
 
+  // ADR 011: post resolution comment and close source GitHub issue.
+  const issueRepo = prev.source_issue_repo;
+  const issueNumber = prev.source_issue_number;
+  if (typeof issueRepo === "string" && typeof issueNumber === "number") {
+    const verificationResults = await fetchVerificationResults(client, briefId);
+    const resolution = await postResolutionAndClose({
+      issueRepo,
+      issueNumber,
+      brief: {
+        id: briefId,
+        title: typeof prev.title === "string" ? prev.title : "",
+        pr_url: typeof prev.pr_url === "string" ? prev.pr_url : null,
+        status: "wontfix",
+      },
+      verificationResults,
+      closeReason: "not_planned",
+      rejectionReason: reason,
+    });
+    if (!resolution.ok) {
+      console.error("[major-reject-brief] issue-close-failed:", {
+        briefId,
+        issueRepo,
+        issueNumber,
+        error: resolution.error,
+      });
+      await client
+        .from("telemetry_records")
+        .insert({
+          observation_type: "external-system-error",
+          brief_id: briefId,
+          run_id: null,
+          idempotency_key: deriveIdempotencyKey(
+            briefId,
+            "issue-close-failed",
+            actor,
+            baseDelivery,
+          ),
+          payload: {
+            error: resolution.error,
+            source_issue_repo: issueRepo,
+            source_issue_number: issueNumber,
+          },
+        })
+        .select();
+    }
+  }
+
   return jsonResponse({ briefId, status: "wontfix" });
+}
+
+async function fetchVerificationResults(
+  client: MajorClient,
+  briefId: number,
+): Promise<ResolutionVerification[]> {
+  const { data: latestRun } = await client
+    .from("runs")
+    .select("id")
+    .eq("brief_id", briefId)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!latestRun) return [];
+  const { data: rows } = await client
+    .from("verification_results")
+    .select("check_name, outcome, required")
+    .eq("run_id", latestRun.id);
+  if (!rows) return [];
+  return rows.map((r) => ({
+    check_name: r.check_name as string,
+    outcome: r.outcome as string,
+    required: r.required as boolean,
+  }));
 }
 
 if (import.meta.main) {
