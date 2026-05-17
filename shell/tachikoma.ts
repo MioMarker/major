@@ -53,6 +53,29 @@ export interface TachikomaRunSnapshot {
   inspectedRunId?: number | null;
 }
 
+/**
+ * Diagnostic snapshot from the prior failed Run, written to disk so the
+ * Repair Tachikoma can read it and form a hypothesis about what went wrong.
+ * Populated by main.ts:runRepair; written to /work/.major/ by runSandboxAgent.
+ */
+export interface InspectedRunData {
+  run: {
+    id: number;
+    outcome: string;
+    cancellationReason: string | null;
+    startedAt: string;
+    endedAt: string | null;
+  };
+  verifications: ReadonlyArray<{
+    checkName: string;
+    outcome: string;
+    required: boolean;
+    payload: Record<string, unknown>;
+  }>;
+  /** Last 4 KB of the prior Run's final_text, already secret-sanitized. */
+  transcriptTail: string;
+}
+
 export interface RunSandboxAgentInput {
   role: TachikomaRole;
   /** Repo working tree, e.g. /work/healthbite. */
@@ -69,6 +92,15 @@ export interface RunSandboxAgentInput {
    * in this callback are logged but never abort the Run.
    */
   onStreamEvent?: (event: ParsedEvent) => Promise<void>;
+  /**
+   * Prior-Run diagnostics for Repair Tachikoma (role='repair' only).
+   * When provided, runSandboxAgent writes three files to /work/.major/ before
+   * spawning the subprocess so the prompt can read them:
+   *   inspected_run.json                — run metadata
+   *   inspected_run_verifications.json  — per-check outcomes
+   *   inspected_run_transcript_tail.txt — sanitized transcript excerpt
+   */
+  inspectedRunData?: InspectedRunData;
 }
 
 export interface TachikomaResult {
@@ -172,6 +204,30 @@ export async function runSandboxAgent(input: RunSandboxAgentInput): Promise<Tach
     ),
     "utf8",
   );
+
+  // 1b. For Repair Runs: write the three inspected-run diagnostic files so the
+  //     Repair Tachikoma prompt can read them and understand what went wrong.
+  //     Only written when role='repair' and the caller provided data; the files
+  //     are absent on non-repair roles, which is intentional — the prompt for
+  //     other roles does not reference them.
+  if (role === "repair" && input.inspectedRunData) {
+    const { run: iRun, verifications: iVers, transcriptTail } = input.inspectedRunData;
+    await fs.writeFile(
+      path.join(majorDir, "inspected_run.json"),
+      JSON.stringify(iRun, null, 2),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(majorDir, "inspected_run_verifications.json"),
+      JSON.stringify(iVers, null, 2),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(majorDir, "inspected_run_transcript_tail.txt"),
+      transcriptTail,
+      "utf8",
+    );
+  }
 
   // 2a. Deploy Claude Code settings + Bash hook into the sandbox (ADR 005).
   await deploySandboxSettings({ sandboxDir, majorDir });

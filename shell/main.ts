@@ -27,8 +27,9 @@
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import { runSandboxAgent, type TachikomaBriefSnapshot, type TachikomaRunSnapshot, type ParsedEvent } from "./tachikoma";
+import { runSandboxAgent, type TachikomaBriefSnapshot, type TachikomaRunSnapshot, type ParsedEvent, type InspectedRunData } from "./tachikoma";
 import { parsePlannerOutput, shouldRunPlanner } from "./planner-helpers";
+import { sanitizeTranscriptTail, shouldRearm, TRANSCRIPT_TAIL_BYTES } from "./repair-helpers";
 
 // ────────────────────────────────────────────────────────────────────
 // Env + constants
@@ -751,6 +752,12 @@ async function fetchBriefForAutoTriage(briefId: number): Promise<TriageBriefRow 
 async function executeRun(claim: ClaimResponse): Promise<void> {
   if (!activeRun) throw new Error("invariant: executeRun called without activeRun");
 
+  // Dispatch on run purpose. Repair Runs skip the execute pipeline entirely
+  // and go through the Repair Tachikoma path instead.
+  if (claim.run.purpose === "repair") {
+    return runRepair(claim);
+  }
+
   // 1. Prepare sandbox: clone repo, checkout branch.
   const sandboxDir = await prepareSandbox(claim);
   activeRun.sandboxDir = sandboxDir;
@@ -770,7 +777,7 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
 
   const runMeta: TachikomaRunSnapshot = {
     id: claim.run.id,
-    purpose: "execute",
+    purpose: claim.run.purpose,
     shellId: env.shellId,
   };
 
@@ -906,9 +913,11 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
       });
 
       // A *successful* Planner reporting expansion-needed is authoritative —
-      // skip Implementer + Reviewer and route to ready-for-human so a human
-      // can re-Triage. (Distinct from the advisory "planner subprocess failed"
-      // case, which falls through to Implementer per Decision 3.)
+      // skip Implementer + Reviewer and finalize as failed. Below budget the
+      // Run re-arms to ready-for-agent (ADR 014); above budget it parks at
+      // ready-for-human so a human can re-Triage.
+      // (Distinct from the advisory "planner subprocess failed" case, which
+      // falls through to Implementer per Decision 3.)
       if (planner.ok && plannerOutput?.scope_check === "expansion-needed") {
         const earlyTelemetry: TelemetryPayload[] = await readTelemetryJsonl();
         if (totalParseErrors > 0) {
@@ -917,12 +926,17 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
             payload: { count: totalParseErrors, runId: claim.run.id },
           });
         }
+        const expansionRetryInfo = await fetchRunRetryInfo(claim.run.id, claim.brief.id);
+        const expansionNextStatus =
+          expansionRetryInfo !== null && shouldRearm(expansionRetryInfo.attemptNumber, expansionRetryInfo.maxAttempts)
+            ? "ready-for-agent"
+            : "ready-for-human";
         await callFinalizeRun({
           runId: claim.run.id,
           briefId: claim.brief.id,
           outcome: "failed",
           cancellationReason: null,
-          nextBriefStatus: "ready-for-human",
+          nextBriefStatus: expansionNextStatus,
           verifications,
           artifacts: [],
           telemetry: earlyTelemetry,
@@ -932,7 +946,7 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
         log("info", "run finalized", {
           runId: claim.run.id,
           outcome: "failed",
-          nextStatus: "ready-for-human",
+          nextStatus: expansionNextStatus,
         });
         return;
       }
@@ -1138,25 +1152,27 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
     nextStatus = "ready-for-review";
     summary = `implementer ok, PR ${implementerOutput.pr_url}, reviewer ${reviewerStatus ?? "n/a"}`;
   } else if (implementerOk && !allRequiredPassed) {
-    // PR exists but a required check failed. Park for human review per ADR 012;
-    // re-arming ready-for-agent here produced the same tight reclaim loop that
-    // bit the exception path before issue #17 (~2 runs/sec). Budgeted retry is
-    // explicitly deferred to a future ADR with concrete trigger criteria.
     outcome = "failed";
-    nextStatus = "ready-for-human";
+    nextStatus = "ready-for-human"; // may be overridden by ADR 014 re-arm below
     summary = "required verification failed; parked for human review";
   } else if (!implementerOk && implementerOutputBailReason(implementerOutput) === "expected-paths-insufficient") {
-    // Scope bail: not retry-safe; route to human.
     outcome = "failed";
-    nextStatus = "ready-for-human";
+    nextStatus = "ready-for-human"; // may be overridden by ADR 014 re-arm below
     summary = "implementer reported expected-paths-insufficient";
   } else {
-    // Generic implementer failure. Park for human review per ADR 012 — the
-    // same disposition as the failed-with-PR path above and the executeRun-
-    // throws path patched in #17. No retry budget exists yet.
     outcome = "failed";
-    nextStatus = "ready-for-human";
+    nextStatus = "ready-for-human"; // may be overridden by ADR 014 re-arm below
     summary = `implementer failed (exit=${implementerExitCode})`;
+  }
+
+  // ADR 014: auto-retry below budget. When the Run failed and the Brief still
+  // has remaining attempts, re-arm to ready-for-agent so the next Shell poll
+  // claims it as a Repair Run instead of leaving it for a human.
+  if (outcome === "failed" && nextStatus === "ready-for-human") {
+    const retryInfo = await fetchRunRetryInfo(claim.run.id, claim.brief.id);
+    if (retryInfo !== null && shouldRearm(retryInfo.attemptNumber, retryInfo.maxAttempts)) {
+      nextStatus = "ready-for-agent";
+    }
   }
 
   await callFinalizeRun({
@@ -1173,6 +1189,432 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
   });
 
   log("info", "run finalized", { runId: claim.run.id, outcome, nextStatus });
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Repair Run execution (ADR 014)
+// ────────────────────────────────────────────────────────────────────
+//
+// runRepair mirrors the executeRun flow (prepareSandbox → Repair Tachikoma →
+// CI poll → Reviewer → finalize) but replaces the Planner + Implementer
+// phases with a single Repair Tachikoma invocation. The Repair Tachikoma
+// receives three extra files under /work/.major/ that describe the prior
+// Run's failure so it can attempt the Brief differently.
+
+/** PostgREST row shape for the inspected Run. */
+interface InspectedRunRow {
+  id: number;
+  outcome: string;
+  cancellation_reason: string | null;
+  started_at: string;
+  ended_at: string | null;
+  final_text: string | null;
+}
+
+/** PostgREST row shape for a verification result. */
+interface InspectedVerRow {
+  check_name: string;
+  outcome: string;
+  required: boolean;
+  payload: Record<string, unknown>;
+}
+
+/**
+ * Fetch the prior Run's row + verification results and build the
+ * InspectedRunData payload that tachikoma.ts writes to disk.
+ * Returns null on any fetch failure — the caller falls back to
+ * finalizing as failed.
+ */
+async function fetchInspectedRunData(runId: number): Promise<InspectedRunData | null> {
+  const restBase = supabaseRestUrl();
+  const headers = supabaseRestHeaders({ read: true });
+  try {
+    const [runResp, verResp] = await Promise.all([
+      fetch(
+        `${restBase}/runs?id=eq.${runId}&select=id,outcome,cancellation_reason,started_at,ended_at,final_text`,
+        { headers },
+      ),
+      fetch(
+        `${restBase}/verification_results?run_id=eq.${runId}&select=check_name,outcome,required,payload`,
+        { headers },
+      ),
+    ]);
+    if (!runResp.ok || !verResp.ok) return null;
+    const [runs, vers] = await Promise.all([runResp.json() as Promise<InspectedRunRow[]>, verResp.json() as Promise<InspectedVerRow[]>]);
+    const row = runs[0];
+    if (!row) return null;
+
+    const transcriptTail = sanitizeTranscriptTail(row.final_text ?? "", TRANSCRIPT_TAIL_BYTES);
+
+    return {
+      run: {
+        id: row.id,
+        outcome: row.outcome,
+        cancellationReason: row.cancellation_reason,
+        startedAt: row.started_at,
+        endedAt: row.ended_at,
+      },
+      verifications: vers.map((v) => ({
+        checkName: v.check_name,
+        outcome: v.outcome,
+        required: v.required,
+        payload: v.payload,
+      })),
+      transcriptTail,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch this Run's attempt_number and the Brief's max_attempts via direct
+ * PostgREST queries. Used in finalization to decide whether to re-arm the
+ * Brief or park it for human review (ADR 014).
+ * Returns null on any fetch failure — the caller falls back to ready-for-human.
+ */
+async function fetchRunRetryInfo(
+  runId: number,
+  briefId: number,
+): Promise<{ attemptNumber: number; maxAttempts: number } | null> {
+  const restBase = supabaseRestUrl();
+  const headers = supabaseRestHeaders({ read: true });
+  try {
+    const [runResp, briefResp] = await Promise.all([
+      fetch(`${restBase}/runs?id=eq.${runId}&select=attempt_number`, { headers }),
+      fetch(`${restBase}/briefs?id=eq.${briefId}&select=max_attempts`, { headers }),
+    ]);
+    if (!runResp.ok || !briefResp.ok) return null;
+    const [runs, briefs] = await Promise.all([
+      runResp.json() as Promise<Array<{ attempt_number: number }>>,
+      briefResp.json() as Promise<Array<{ max_attempts: number }>>,
+    ]);
+    const runRow = runs[0];
+    const briefRow = briefs[0];
+    if (!runRow || !briefRow) return null;
+    return { attemptNumber: runRow.attempt_number, maxAttempts: briefRow.max_attempts };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Execute a Repair Run (claim.run.purpose === 'repair').
+ *
+ * Fetches prior-Run diagnostics from the Cyberbrain, writes them to
+ * /work/.major/ as input files, then runs:
+ *   Repair Tachikoma → CI poll → Reviewer → finalize
+ *
+ * Identical to the executeRun flow from the CI-poll step onward.
+ */
+async function runRepair(claim: ClaimResponse): Promise<void> {
+  if (!activeRun) throw new Error("invariant: runRepair called without activeRun");
+
+  const sandboxDir = await prepareSandbox(claim);
+  activeRun.sandboxDir = sandboxDir;
+
+  const brief: TachikomaBriefSnapshot = {
+    id: claim.brief.id,
+    title: claim.brief.title,
+    status: claim.brief.status,
+    classifications: claim.brief.classifications,
+    expectedArtifactType: claim.brief.expectedArtifactType,
+    expectedPaths: claim.brief.expectedPaths,
+    baseBranch: claim.brief.baseBranch,
+    gitRepositoryRef: claim.brief.gitRepositoryRef,
+    contentMd: claim.brief.contentMd,
+    currentRevisionId: claim.brief.currentRevisionId,
+  };
+
+  const runMeta: TachikomaRunSnapshot = {
+    id: claim.run.id,
+    purpose: "repair",
+    shellId: env.shellId,
+    inspectedRunId: claim.run.inspectedRunId ?? null,
+  };
+
+  let streamSeq = 0;
+  let totalParseErrors = 0;
+
+  const onStreamEvent = async (event: ParsedEvent): Promise<void> => {
+    streamSeq++;
+    const key = `${claim.run.id}:tachikoma-stream-event:${env.shellId}:${streamSeq}`;
+    try {
+      await callRecordTelemetry({
+        runId: claim.run.id,
+        observationType: "tachikoma-stream-event",
+        payload: {
+          eventKind: event.eventKind,
+          body: event.body,
+          shell_id: env.shellId,
+          sequence: streamSeq,
+        },
+        idempotencyKey: key,
+      });
+    } catch (err) {
+      log("warn", "stream-event telemetry write failed (continuing)", {
+        runId: claim.run.id,
+        sequence: streamSeq,
+        error: errToString(err),
+      });
+    }
+  };
+
+  const verifications: VerificationPayload[] = [];
+  const artifacts: ArtifactPayload[] = [];
+
+  // Fetch prior-Run diagnostics. If unavailable (e.g. network error), we
+  // proceed without the inspected-run files — the Repair prompt still runs
+  // but with less context. Log a warning so the operator can investigate.
+  const inspectedRunId = claim.run.inspectedRunId;
+  let inspectedRunData: InspectedRunData | null = null;
+  if (inspectedRunId != null) {
+    inspectedRunData = await fetchInspectedRunData(inspectedRunId);
+    if (!inspectedRunData) {
+      log("warn", "runRepair: could not fetch inspected run data; proceeding without it", {
+        runId: claim.run.id,
+        inspectedRunId,
+      });
+    }
+  } else {
+    log("warn", "runRepair: no inspectedRunId on repair run; proceeding without prior-run context", {
+      runId: claim.run.id,
+    });
+  }
+
+  // Check lease before repair phase.
+  if (leaseLostFlag) {
+    await abortOnLeaseLost({ claim, verifications, artifacts });
+    return;
+  }
+
+  // Pre-check: adopt an existing open PR if one is already on this branch
+  // (same logic as executeRun — handles the case where a prior Repair Run
+  // pushed commits + opened a PR but was cancelled before finalization).
+  const featureBranch = `major/brief-${claim.brief.id}`;
+  const preCheckPr = await findExistingPr({
+    sandboxDir,
+    featureBranch,
+    gitRepositoryRef: claim.brief.gitRepositoryRef ?? "",
+  });
+
+  let repairOk: boolean;
+  let repairOutput: ImplementerOutput | null;
+  let repairExitCode: number;
+  let repairCompletionEvent: ParsedEvent | undefined;
+
+  if (preCheckPr) {
+    log("info", "runRepair: existing PR found — adopting and skipping repair tachikoma", {
+      runId: claim.run.id,
+      featureBranch,
+      prNumber: preCheckPr.pr_number,
+    });
+    repairOk = true;
+    repairOutput = {
+      ok: true,
+      pr_url: preCheckPr.pr_url,
+      pr_number: preCheckPr.pr_number,
+      commits: [],
+      files_touched: [],
+      verifications: [],
+    };
+    repairExitCode = 0;
+    repairCompletionEvent = undefined;
+    verifications.push({
+      check_name: "tachikoma-repair",
+      outcome: "pass",
+      required: true,
+      requiredness_source: "artifact-type-policy",
+      payload: { note: "pre-check: adopted existing PR; repair phase skipped", prNumber: preCheckPr.pr_number },
+    });
+  } else {
+    log("info", "phase: repair starting", { runId: claim.run.id });
+    const repair = await runSandboxAgent({
+      role: "repair",
+      sandboxDir,
+      brief,
+      run: runMeta,
+      onStreamEvent,
+      ...(inspectedRunData ? { inspectedRunData } : {}),
+    });
+    log("info", "phase: repair ended", {
+      runId: claim.run.id,
+      ok: repair.ok,
+      exitCode: repair.exitCode,
+      durationMs: repair.durationMs,
+      parseErrors: repair.tachikomaParseErrors,
+    });
+    totalParseErrors += repair.tachikomaParseErrors;
+
+    repairOk = repair.ok;
+    repairOutput = parseImplementerOutput(repair.parsedOutput);
+    repairExitCode = repair.exitCode;
+    repairCompletionEvent = repair.completionEvent;
+
+    verifications.push({
+      check_name: "tachikoma-repair",
+      outcome: repair.ok ? "pass" : "fail",
+      required: true,
+      requiredness_source: "artifact-type-policy",
+      payload: {
+        promptVersion: repair.promptVersion,
+        durationMs: repair.durationMs,
+        exitCode: repair.exitCode,
+        transcriptRef: repair.transcriptPath,
+        outputSnippet: repair.stdoutSnippet.slice(-1024),
+      },
+    });
+    if (repairOutput?.verifications) {
+      for (const v of repairOutput.verifications) {
+        const normalizedOutcome: "pass" | "fail" | "skipped" =
+          v.outcome === "pass" ? "pass" : v.outcome === "fail" ? "fail" : "skipped";
+        verifications.push({
+          check_name: v.check,
+          outcome: normalizedOutcome,
+          required: normalizedOutcome !== "skipped",
+          requiredness_source: "artifact-type-policy",
+          payload: { durationMs: v.duration_ms ?? null },
+        });
+      }
+    }
+
+    if (leaseLostFlag) {
+      await abortOnLeaseLost({ claim, verifications, artifacts });
+      return;
+    }
+  }
+
+  activeRun.implementerOutput = repairOutput;
+  await fs.writeFile(
+    path.join("/work", ".major", "implementer-output.json"),
+    JSON.stringify(repairOutput ?? { ok: false }, null, 2),
+    "utf8",
+  );
+
+  const telemetry: TelemetryPayload[] = await readTelemetryJsonl();
+  if (totalParseErrors > 0) {
+    telemetry.push({
+      observationType: "tachikoma-stream-parse-errors",
+      payload: { count: totalParseErrors, runId: claim.run.id },
+    });
+  }
+
+  // CI poll + Reviewer — identical to executeRun from this point forward.
+  let reviewerOk = false;
+  let reviewerStatus: "pass" | "fail" | "pending" | null = null;
+
+  if (repairOk && repairOutput?.pr_url && repairOutput.pr_number) {
+    artifacts.push({
+      artifact_type: "git-change",
+      external_ref: repairOutput.pr_url,
+      payload: {
+        prNumber: repairOutput.pr_number,
+        headSha: repairOutput.head_sha ?? null,
+        commits: repairOutput.commits ?? [],
+        filesTouched: repairOutput.files_touched ?? [],
+      },
+    });
+
+    const ciResult = await waitForCI({
+      sandboxDir,
+      prNumber: repairOutput.pr_number,
+      gitRepositoryRef: claim.brief.gitRepositoryRef ?? "",
+    });
+    verifications.push({
+      check_name: "ci-rollup",
+      outcome: ciResult.outcome,
+      required: ciResult.outcome !== "skipped",
+      requiredness_source: "artifact-type-policy",
+      payload: { durationMs: ciResult.durationMs, outputSnippet: ciResult.summary },
+    });
+    log("info", "ci wait ended (repair)", {
+      runId: claim.run.id,
+      outcome: ciResult.outcome,
+      durationMs: ciResult.durationMs,
+    });
+
+    if (leaseLostFlag) {
+      await abortOnLeaseLost({ claim, verifications, artifacts });
+      return;
+    }
+
+    log("info", "phase: reviewer starting (after repair)", { runId: claim.run.id });
+    const reviewer = await runSandboxAgent({
+      role: "reviewer",
+      sandboxDir,
+      brief,
+      run: runMeta,
+      onStreamEvent,
+    });
+    log("info", "phase: reviewer ended (after repair)", {
+      runId: claim.run.id,
+      ok: reviewer.ok,
+      exitCode: reviewer.exitCode,
+      durationMs: reviewer.durationMs,
+      parseErrors: reviewer.tachikomaParseErrors,
+    });
+    totalParseErrors += reviewer.tachikomaParseErrors;
+
+    reviewerOk = reviewer.ok;
+    const reviewerOutput = parseReviewerOutput(reviewer.parsedOutput);
+    if (reviewerOutput) reviewerStatus = reviewerOutput.status;
+
+    verifications.push({
+      check_name: "tachikoma-reviewer",
+      outcome: reviewer.ok ? "pass" : "fail",
+      required: false,
+      requiredness_source: "artifact-type-policy",
+      payload: {
+        promptVersion: reviewer.promptVersion,
+        durationMs: reviewer.durationMs,
+        exitCode: reviewer.exitCode,
+        transcriptRef: reviewer.transcriptPath,
+        outputSnippet: reviewer.stdoutSnippet.slice(-1024),
+        status: reviewerStatus,
+      },
+    });
+  }
+
+  // Finalize with ADR 014 re-arm logic.
+  const allRequiredPassed = verifications.filter((v) => v.required).every((v) => v.outcome === "pass");
+
+  let outcome: "succeeded" | "failed";
+  let nextStatus: string;
+  let summary: string;
+
+  if (repairOk && repairOutput?.pr_url && allRequiredPassed) {
+    outcome = "succeeded";
+    nextStatus = "ready-for-review";
+    summary = `repair ok, PR ${repairOutput.pr_url}, reviewer ${reviewerStatus ?? "n/a"}`;
+  } else {
+    outcome = "failed";
+    // ADR 014: re-arm below budget; above budget park for human.
+    const retryInfo = await fetchRunRetryInfo(claim.run.id, claim.brief.id);
+    nextStatus =
+      retryInfo !== null && shouldRearm(retryInfo.attemptNumber, retryInfo.maxAttempts)
+        ? "ready-for-agent"
+        : "ready-for-human";
+    summary = repairOk
+      ? "required verification failed after repair"
+      : `repair tachikoma failed (exit=${repairExitCode})`;
+  }
+
+  void reviewerOk; // used via reviewerStatus above
+
+  await callFinalizeRun({
+    runId: claim.run.id,
+    briefId: claim.brief.id,
+    outcome,
+    cancellationReason: null,
+    nextBriefStatus: nextStatus,
+    verifications,
+    artifacts,
+    telemetry,
+    summary,
+    tachikomaCompletion: repairCompletionEvent?.body,
+  });
+
+  log("info", "repair run finalized", { runId: claim.run.id, outcome, nextStatus });
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -1318,6 +1760,10 @@ async function cleanupSandbox(sandboxDir: string, runId: number): Promise<void> 
     "plan.md",
     "implementer-output.json",
     "telemetry.jsonl",
+    // Repair Tachikoma input files (written when purpose=repair).
+    "inspected_run.json",
+    "inspected_run_verifications.json",
+    "inspected_run_transcript_tail.txt",
   ];
   for (const f of briefFiles) {
     await fs.rm(path.join(majorDir, f), { force: true }).catch(() => undefined);
@@ -1330,6 +1776,7 @@ async function cleanupSandbox(sandboxDir: string, runId: number): Promise<void> 
     `planner.${runId}.transcript.txt`,
     `implementer.${runId}.transcript.txt`,
     `reviewer.${runId}.transcript.txt`,
+    `repair.${runId}.transcript.txt`,
   ];
   for (const f of runTranscripts) {
     await fs.rm(path.join(majorDir, f), { force: true }).catch(() => undefined);
@@ -1473,6 +1920,8 @@ interface ClaimResponse {
     purpose: "execute" | "review" | "triage" | "repair";
     leaseExpiresAt: string;
     sandboxRef: string | null;
+    /** Set by the RPC when purpose='repair'; id of the prior failed Run. */
+    inspectedRunId: number | null;
   };
 }
 
