@@ -1,11 +1,12 @@
 // major-confirm-qa/index.test.ts
 //
-// Run: deno test --allow-none supabase/functions/major-confirm-qa/index.test.ts
+// Run: deno test --allow-all supabase/functions/major-confirm-qa/index.test.ts
 //
-// Tests for confirmQaCore (F-19, F-02).
+// Tests for confirmQaCore (F-19, F-02, ADR-011).
 
 import { assert, assertEquals } from "jsr:@std/assert@^0.226.0";
 import { confirmQaCore } from "./index.ts";
+import { __testing as githubTesting } from "../_shared/github-issue.ts";
 
 // ────────────────────────────────────────────────────────────────────
 // Mock client builder
@@ -161,4 +162,153 @@ Deno.test("F-02: accepted event idempotency key uses qa-confirm-<briefId> seed",
     accepted.idempotency_key.includes("qa-confirm-42"),
     `expected key to contain 'qa-confirm-42', got: ${accepted.idempotency_key}`,
   );
+});
+
+// ────────────────────────────────────────────────────────────────────
+// ADR-011: postResolutionAndClose happy path
+// ────────────────────────────────────────────────────────────────────
+
+type GithubCall = { url: string; method: string; body: string | undefined };
+
+function installGithubMock(): { calls: GithubCall[]; reset: () => void } {
+  const calls: GithubCall[] = [];
+  githubTesting.setDeps({
+    env: (key) => key === "GITHUB_APP_TOKEN" ? "mock-token" : undefined,
+    fetch: (input, init) => {
+      const url = typeof input === "string"
+        ? input
+        : input instanceof URL
+        ? input.toString()
+        : (input as Request).url;
+      const method = ((init as { method?: string })?.method ?? "GET").toUpperCase();
+      const body = typeof (init as { body?: unknown })?.body === "string"
+        ? (init as { body: string }).body
+        : undefined;
+      calls.push({ url, method, body });
+
+      if (method === "GET" && url.includes("/comments")) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
+      }
+      if (method === "GET" && url.endsWith("/user")) {
+        return Promise.resolve(new Response(JSON.stringify({ login: "major-bot" }), { status: 200 }));
+      }
+      if (method === "POST" && url.includes("/comments")) {
+        return Promise.resolve(new Response(JSON.stringify({ id: 1 }), { status: 201 }));
+      }
+      if (method === "PATCH") {
+        return Promise.resolve(new Response(JSON.stringify({ number: 1, state: "closed" }), { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ error: "unmatched" }), { status: 599 }));
+    },
+  });
+  return { calls, reset: () => githubTesting.resetDeps() };
+}
+
+// Extended mock client: supports runs + verification_results queries.
+function makeMockClientWithIssue(opts: {
+  updatedRow: Record<string, unknown> | null;
+  latestRunId?: number | null;
+}) {
+  // deno-lint-ignore no-explicit-any
+  const from = (table: string): any => {
+    const ctx: { op: string | null; filters: Record<string, string> } =
+      { op: null, filters: {} };
+
+    // deno-lint-ignore no-explicit-any
+    const builder: any = {
+      select(_cols?: string) {
+        if (!ctx.op) ctx.op = "select";
+        return builder;
+      },
+      update(_fields: unknown) {
+        ctx.op = "update";
+        return builder;
+      },
+      insert(_rows: unknown) {
+        ctx.op = "insert";
+        return builder;
+      },
+      eq(col: string, val: unknown) {
+        ctx.filters[col] = String(val);
+        return builder;
+      },
+      order(_col: string, _opts?: unknown) {
+        return builder;
+      },
+      limit(_n: number) {
+        return builder;
+      },
+      maybeSingle() {
+        if (table === "briefs" && ctx.op === "update") {
+          return Promise.resolve({ data: opts.updatedRow, error: null });
+        }
+        if (table === "runs") {
+          const runId = opts.latestRunId ?? null;
+          return Promise.resolve({
+            data: runId !== null ? { id: runId } : null,
+            error: null,
+          });
+        }
+        return Promise.resolve({ data: null, error: null });
+      },
+      then(
+        resolve: (val: { data: unknown; error: unknown }) => void,
+        _reject: (e: unknown) => void,
+      ) {
+        if (table === "verification_results") {
+          resolve({ data: [], error: null });
+        } else {
+          resolve({ data: null, error: null });
+        }
+      },
+    };
+
+    return builder;
+  };
+
+  return { from } as never;
+}
+
+Deno.test("ADR-011 happy path: postResolutionAndClose called with closeReason 'completed'", async () => {
+  const { calls, reset } = installGithubMock();
+  try {
+    const client = makeMockClientWithIssue({
+      updatedRow: {
+        id: 42,
+        status: "done",
+        source_issue_repo: "MioMarker/healthbite",
+        source_issue_number: 7,
+        title: "Fix the bug",
+        pr_url: "https://github.com/MioMarker/healthbite/pull/10",
+      },
+      latestRunId: 100,
+    });
+
+    const res = await confirmQaCore(client, 42, "human:alice");
+    assertEquals(res.status, 200);
+
+    const patchCall = calls.find((c) => c.method === "PATCH");
+    assert(patchCall, "expected a PATCH call to close the source issue");
+    const patchBody = JSON.parse(patchCall.body ?? "{}") as {
+      state?: string;
+      state_reason?: string;
+    };
+    assertEquals(patchBody.state_reason, "completed");
+  } finally {
+    reset();
+  }
+});
+
+Deno.test("ADR-011: no GitHub call when source_issue_repo is null", async () => {
+  const { calls, reset } = installGithubMock();
+  try {
+    const client = makeMockClientWithIssue({
+      updatedRow: { id: 42, status: "done", source_issue_repo: null, source_issue_number: null },
+    });
+    const res = await confirmQaCore(client, 42, "human:alice");
+    assertEquals(res.status, 200);
+    assertEquals(calls.length, 0, "no GitHub API calls when source_issue_repo is null");
+  } finally {
+    reset();
+  }
 });
