@@ -37,6 +37,10 @@ import { getAdminClient, type MajorClient } from "../_shared/db.ts";
 import { verifyGithubSignature } from "../_shared/webhook.ts";
 import { deriveIdempotencyKey } from "../_shared/idempotency.ts";
 import { parseBriefIdFromBody } from "./parse-pr-receipt.ts";
+import {
+  postResolutionAndClose,
+  type ResolutionVerification,
+} from "../_shared/github-issue.ts";
 
 // F-17a: Added "tachikoma-implementer" to the known check names set.
 const KNOWN_CHECK_NAMES = new Set([
@@ -200,7 +204,7 @@ async function maybeAutoCloseBrief(
 ): Promise<void> {
   const { data: brief, error: lookupErr } = await client
     .from("briefs")
-    .select("id, status, source_issue_repo, source_issue_number")
+    .select("id, status, source_issue_repo, source_issue_number, title, pr_url")
     .eq("id", briefId)
     .maybeSingle();
   if (lookupErr) {
@@ -263,85 +267,78 @@ async function maybeAutoCloseBrief(
     })
     .select();
 
-  // Source-issue close (only on merged → done; per ADR 007, closing a PR
-  // without merge does NOT imply rejecting the underlying request). Both
-  // columns are nullable; narrow before passing to the typed helper.
-  if (targetStatus === "done") {
-    const issueRepo = brief.source_issue_repo;
-    const issueNumber = brief.source_issue_number;
-    if (typeof issueRepo === "string" && typeof issueNumber === "number") {
-      await closeSourceIssue(issueRepo, issueNumber, pr, briefId);
+  // ADR 011: post resolution comment and close source GitHub issue for both
+  // terminal branches. merged → "completed"; closed-without-merge → "not_planned".
+  const issueRepo = brief.source_issue_repo;
+  const issueNumber = brief.source_issue_number;
+  if (typeof issueRepo === "string" && typeof issueNumber === "number") {
+    const verificationResults = await fetchVerificationResults(client, briefId);
+    const resolution = await postResolutionAndClose({
+      issueRepo,
+      issueNumber,
+      brief: {
+        id: briefId,
+        title: typeof brief.title === "string" ? brief.title : "",
+        pr_url: typeof brief.pr_url === "string" ? brief.pr_url : null,
+        status: targetStatus,
+      },
+      verificationResults,
+      closeReason: merged ? "completed" : "not_planned",
+    });
+    if (!resolution.ok) {
+      console.error("[major-github-webhook] issue-close-failed:", {
+        briefId,
+        issueRepo,
+        issueNumber,
+        error: resolution.error,
+        delivery,
+      });
+      await client
+        .from("telemetry_records")
+        .insert({
+          observation_type: "external-system-error",
+          brief_id: briefId,
+          run_id: null,
+          idempotency_key: deriveIdempotencyKey(
+            briefId,
+            "issue-close-failed",
+            "integration:github",
+            delivery,
+          ),
+          payload: {
+            error: resolution.error,
+            source_issue_repo: issueRepo,
+            source_issue_number: issueNumber,
+            delivery,
+          },
+        })
+        .select();
     }
   }
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Source-issue close via GitHub REST API (ADR 007)
-// ─────────────────────────────────────────────────────────────────
-async function closeSourceIssue(
-  repo: string,
-  issueNumber: number,
-  pr: any,
+async function fetchVerificationResults(
+  client: ReturnType<typeof getAdminClient>,
   briefId: number,
-): Promise<void> {
-  const token = Deno.env.get("GITHUB_APP_TOKEN");
-  if (!token) {
-    console.error(
-      "[major-github-webhook] issue-close-failed: GITHUB_APP_TOKEN not configured",
-      { repo, issueNumber, briefId },
-    );
-    return;
-  }
-
-  const commonHeaders = {
-    Authorization: `Bearer ${token}`,
-    Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-    "Content-Type": "application/json",
-  };
-
-  // Comment first so the close has context. Both calls are best-effort —
-  // failure here does NOT abort the Brief transition (per ADR 007); the
-  // operator triages per docs/failure-modes.md § 18.
-  const commentRes = await fetch(
-    `https://api.github.com/repos/${repo}/issues/${issueNumber}/comments`,
-    {
-      method: "POST",
-      headers: commonHeaders,
-      body: JSON.stringify({
-        body:
-          `Closed by [${repo}#${pr.number}](${pr.html_url}) (Major Brief #${briefId}).`,
-      }),
-    },
-  );
-  if (!commentRes.ok) {
-    console.error("[major-github-webhook] issue-close-failed (comment):", {
-      repo,
-      issueNumber,
-      briefId,
-      status: commentRes.status,
-      body: await commentRes.text().catch(() => ""),
-    });
-    return;
-  }
-
-  const closeRes = await fetch(
-    `https://api.github.com/repos/${repo}/issues/${issueNumber}`,
-    {
-      method: "PATCH",
-      headers: commonHeaders,
-      body: JSON.stringify({ state: "closed", state_reason: "completed" }),
-    },
-  );
-  if (!closeRes.ok) {
-    console.error("[major-github-webhook] issue-close-failed (close):", {
-      repo,
-      issueNumber,
-      briefId,
-      status: closeRes.status,
-      body: await closeRes.text().catch(() => ""),
-    });
-  }
+): Promise<ResolutionVerification[]> {
+  const { data: latestRun } = await client
+    .from("runs")
+    .select("id")
+    .eq("brief_id", briefId)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!latestRun) return [];
+  const { data: rows } = await client
+    .from("verification_results")
+    .select("check_name, outcome, required")
+    .eq("run_id", latestRun.id);
+  if (!rows) return [];
+  return rows.map((r) => ({
+    check_name: r.check_name as string,
+    outcome: r.outcome as string,
+    required: r.required as boolean,
+  }));
 }
 
 function derivePrStatus(action: string, pr: any): "open" | "merged" | "closed" {

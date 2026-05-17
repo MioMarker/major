@@ -12,21 +12,38 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleOptions } from "../_shared/cors.ts";
-import { authenticate } from "../_shared/auth.ts";
+import {
+  authenticate,
+  type AuthenticateResult,
+} from "../_shared/auth.ts";
 import { errorResponse, jsonResponse } from "../_shared/response.ts";
 
 interface ApplyBody {
   changeSetId: number;
 }
 
-Deno.serve(async (req) => {
+type AuthFn = (req: Request) => Promise<AuthenticateResult>;
+
+// Dependency injection seam — overridden in tests.
+let _auth: AuthFn = authenticate;
+
+export const __testing = {
+  setAuth(fn: AuthFn): void {
+    _auth = fn;
+  },
+  reset(): void {
+    _auth = authenticate;
+  },
+};
+
+export async function handler(req: Request): Promise<Response> {
   const preflight = handleOptions(req);
   if (preflight) return preflight;
 
   if (req.method !== "POST") return errorResponse("Method not allowed", 405);
 
   try {
-    const auth = await authenticate(req);
+    const auth = await _auth(req);
     if (!auth.ok) return errorResponse(auth.message, auth.status);
 
     const body = (await req.json()) as ApplyBody;
@@ -68,4 +85,6 @@ Deno.serve(async (req) => {
     console.error("[major-apply-change-set]", err);
     return errorResponse("Internal server error", 500);
   }
-});
+}
+
+Deno.serve(handler);

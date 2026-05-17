@@ -1,0 +1,12 @@
+{
+  "name": "major",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Major — AI-assisted Brief lifecycle system.",
+  "scripts": {
+    "test:rpc": "scripts/test-rpc.sh",
+    "test:functions": "cd supabase/functions && npx deno test --allow-read --allow-env",
+    "test:shell": "cd shell && npm test",
+    "test": "npm run test:rpc && npm run test:functions && npm run test:shell"
+  }
+}

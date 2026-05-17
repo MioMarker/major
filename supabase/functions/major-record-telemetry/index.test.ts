@@ -97,7 +97,11 @@ function uniqueKey(label: string): string {
 // Tests
 // ────────────────────────────────────────────────────────────────────
 
-Deno.test("TelemetryWriter: writes a record and increments tachikoma_event_sequence", async () => {
+// Integration tests require a real Supabase instance.
+// They are skipped automatically when credentials are absent (local dev / CI without creds).
+const HAVE_CREDS = !!Deno.env.get("SUPABASE_URL") && !!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+Deno.test({ name: "TelemetryWriter: writes a record and increments tachikoma_event_sequence", ignore: !HAVE_CREDS, fn: async () => {
   const { client, runId, cleanup } = await createTestFixture();
   try {
     const result = await telemetryWriter(client, {
@@ -122,9 +126,9 @@ Deno.test("TelemetryWriter: writes a record and increments tachikoma_event_seque
   } finally {
     await cleanup();
   }
-});
+}});
 
-Deno.test("TelemetryWriter: idempotency — duplicate key returns existing row, sequence not re-incremented", async () => {
+Deno.test({ name: "TelemetryWriter: idempotency — duplicate key returns existing row, sequence not re-incremented", ignore: !HAVE_CREDS, fn: async () => {
   const { client, runId, cleanup } = await createTestFixture();
   try {
     const key = uniqueKey("idem");
@@ -159,9 +163,9 @@ Deno.test("TelemetryWriter: idempotency — duplicate key returns existing row, 
   } finally {
     await cleanup();
   }
-});
+}});
 
-Deno.test("TelemetryWriter: sanitizer-on-write — secret in payload lands redacted", async () => {
+Deno.test({ name: "TelemetryWriter: sanitizer-on-write — secret in payload lands redacted", ignore: !HAVE_CREDS, fn: async () => {
   const { client, runId, cleanup } = await createTestFixture();
   try {
     const secretCommand = "curl -H 'Authorization: Bearer sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'";
@@ -179,9 +183,9 @@ Deno.test("TelemetryWriter: sanitizer-on-write — secret in payload lands redac
   } finally {
     await cleanup();
   }
-});
+}});
 
-Deno.test("TelemetryWriter: sequence atomicity — two sequential writes get distinct sequence slots", async () => {
+Deno.test({ name: "TelemetryWriter: sequence atomicity — two sequential writes get distinct sequence slots", ignore: !HAVE_CREDS, fn: async () => {
   const { client, runId, cleanup } = await createTestFixture();
   try {
     await telemetryWriter(client, {
@@ -216,4 +220,4 @@ Deno.test("TelemetryWriter: sequence atomicity — two sequential writes get dis
   } finally {
     await cleanup();
   }
-});
+}});
