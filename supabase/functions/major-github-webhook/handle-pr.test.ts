@@ -64,6 +64,10 @@ function makeMockClient(_opts: MockOpts = {}) {
       select(_cols?: string) {
         return builder;
       },
+      // maybeSingle — used by maybeAutoCloseBrief; return null data so it short-circuits
+      maybeSingle(): Promise<{ data: null; error: null }> {
+        return Promise.resolve({ data: null, error: null });
+      },
       // thenable — most inserts/updates are awaited directly
       then(
         resolve: (val: { data: unknown; error: null }) => void,
@@ -228,4 +232,69 @@ Deno.test("PR with valid receipt + opened action → event inserted with correct
   assertEquals(event.row.type, "pr-opened");
   assertEquals(event.row.actor, "integration:github");
   assertEquals(event.row.brief_id, 42);
+});
+
+// ─────────────────────────────────────────────────────────────────
+// F-17: pull_request.closed writes pr_derived_facts (regression for F-17b)
+// ─────────────────────────────────────────────────────────────────
+
+Deno.test("F-17: pull_request.closed (not merged) → pr_derived_facts written, pr_status=closed", async () => {
+  const { client, recorded } = makeMockClient();
+  const payload = buildPrPayload({
+    prBody: RECEIPT_BODY,
+    action: "closed",
+    merged: false,
+    prState: "closed",
+    additions: 20,
+    deletions: 5,
+    changedFiles: 2,
+    requestedReviewers: [{ login: "dev-a" }],
+  });
+  await handlePullRequest(client, payload, "delivery-closed-1");
+
+  const update = recorded.find((r) => r.kind === "briefs-update");
+  assert(update, "expected briefs-update on closed action");
+
+  // pr_derived_facts must be written (F-17b regression: closed action must
+  // go through the same update path as opened/reopened).
+  assert("pr_derived_facts" in update.updateFields, "pr_derived_facts must be in update");
+  const facts = update.updateFields.pr_derived_facts as Record<string, unknown>;
+  assertEquals(facts.additions, 20);
+  assertEquals(facts.deletions, 5);
+  assertEquals(facts.changed_files, 2);
+  assertEquals(facts.requested_reviewer_count, 1);
+
+  // pr_status must reflect the non-merged close.
+  assertEquals(update.updateFields.pr_status, "closed");
+});
+
+Deno.test("F-17: pull_request.closed (merged) → pr_status=merged, pr_derived_facts written", async () => {
+  const { client, recorded } = makeMockClient();
+  const payload = buildPrPayload({
+    prBody: RECEIPT_BODY,
+    action: "closed",
+    merged: true,
+    prState: "closed",
+  });
+  await handlePullRequest(client, payload, "delivery-merged-1");
+
+  const update = recorded.find((r) => r.kind === "briefs-update");
+  assert(update, "expected briefs-update on merged closed action");
+  assertEquals(update.updateFields.pr_status, "merged");
+  assert("pr_derived_facts" in update.updateFields, "pr_derived_facts must be in update on merge");
+});
+
+Deno.test("F-17: pull_request.closed → event type is pr-closed", async () => {
+  const { client, recorded } = makeMockClient();
+  const payload = buildPrPayload({
+    prBody: RECEIPT_BODY,
+    action: "closed",
+    merged: false,
+    prState: "closed",
+  });
+  await handlePullRequest(client, payload, "delivery-closed-event");
+
+  const event = recorded.find((r) => r.kind === "event-insert");
+  assert(event, "expected event-insert on closed action");
+  assertEquals(event.row.type, "pr-closed");
 });

@@ -536,3 +536,75 @@ Major's adoption of HealthBite (and Healix, already on this model) requires Heal
    ```
 
 After cutover: verify by opening a trivial PR targeting `dev` and walking it through the new flow. The release path (`dev → main`) is exercised at the next mobile or backend release, not as part of the cutover itself.
+
+---
+
+## Running tests locally
+
+Major has three test suites per ADR 020. A root `npm test` runs all three in sequence.
+
+### Prerequisites
+
+- **Deno** ≥ 1.40 — for the edge-function tests.
+- **Node.js** ≥ 20 — for the Shell tests.
+- **pgTAP** (optional) — for the RPC SQL tests. Install via `brew install pgtap` on macOS. Required in CI; skipped locally if `DATABASE_URL` is unset.
+- Shell deps: `cd shell && npm install`
+
+### One-shot
+
+```bash
+npm test          # runs pgTAP + Deno + Shell; pgTAP is skipped if DATABASE_URL unset
+```
+
+### Individual suites
+
+```bash
+# pgTAP (Postgres RPC tests) — requires a running Postgres with Major schema applied
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/major_test scripts/test-rpc.sh
+
+# Deno tests (edge functions + shared helpers)
+deno test --allow-none supabase/functions/
+
+# Shell tests (Node.js behavioral tests)
+cd shell && npm test
+```
+
+### Setting up Postgres for pgTAP locally
+
+Using Supabase CLI with a local database:
+
+```bash
+npx -y supabase start          # starts a local Postgres + Supabase stack
+npx -y supabase db push        # applies all migrations
+
+# pg_prove reads DATABASE_URL — get the local connection string:
+export DATABASE_URL=$(npx -y supabase status --output json | jq -r '.DB_URL')
+scripts/test-rpc.sh
+```
+
+Or directly with Docker:
+
+```bash
+docker run -d --name major-pg \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=major_test \
+  -p 5432:5432 \
+  supabase/postgres:15.1.0.117
+
+export DATABASE_URL=postgres://postgres:postgres@localhost:5432/major_test
+
+# Apply the schema
+for f in supabase/migrations/*.sql; do
+  psql "$DATABASE_URL" -f "$f"
+done
+
+scripts/test-rpc.sh
+```
+
+### Test files reference
+
+| Suite | Files | What's tested |
+|---|---|---|
+| pgTAP | `tests/rpc/*.test.sql` | claim_next_brief (F-06, F-07), finalize_run (F-11, F-12), apply_change_set (F-04, F-22), reaper_sweep |
+| Deno | `supabase/functions/**/*.test.ts` | path-blocker glob matcher, webhook signature verification, handlePullRequest F-17, confirmQaCore F-19, sanitizer, github-issue ADR 011, reject-brief F-02 |
+| Shell | `shell/*.test.ts` | Stream-JSON parser, planner gate, F-10 heartbeat-loss abort, F-14 sandbox cleanup, F-16 PR-exists detection |
