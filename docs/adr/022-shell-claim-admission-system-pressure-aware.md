@@ -80,3 +80,22 @@ This ADR moves to `Accepted` when:
 2. OR a separate event (PROXY removal, replacement, or extended downtime) makes the interim untenable sooner.
 
 At promotion, a follow-on ADR (or amendment to this one) confirms the probe design.
+
+## Amendment — 2026-05-22 (interim coordination is observe-only in practice)
+
+The 2026-05-21/22 architectural regrill against `~/projects/personal-nix/wiki/notes/proxy-architectural-reflection-2026-05-14.md` § S3 surfaced a doc-vs-code gap: this ADR + PROXY's `CLAUDE.md` #16 + PROXY's `docs/ARCHITECTURE.md` § 9 all describe PROXY "driving `shell_pool_state.paused`" on host pressure events as the v1 interim mechanism. Grep against PROXY's `daemon/src/` and `daemon/migrations/` (commit `f365a07`, 2026-05-22) finds **zero references** to `shell_pool_state`. The write-back path is not implemented.
+
+**What's actually wired today (v1 interim, as built):**
+
+- PROXY's sensor observes Docker stats every 5 s (`docker_tick = from_secs(5)` in `daemon/src/sensor/mod.rs`).
+- PROXY's admission rule gates *its own* loop spawns against host pressure.
+- **No flag is ever written to Major's `shell_pool_state` table.** Major's `claim_next_brief` flow is unchanged from pre-2026-05-11 state with respect to host memory.
+
+**Net consequence:** Major's memory safety under host pressure is unimproved by PROXY v1's existence today. The intended coordination is unidirectional-observation-only, not the bidirectional observe-and-pause this ADR's Decision § 4 describes.
+
+**Two paths to resolve (neither blocking — current state has been live since 2026-05-11 without an incident):**
+
+1. **Build the interim flag in PROXY.** Add a migration in `daemon/migrations/` for `major.shell_pool_state.host_pressure_level + host_pressure_updated_at`, and a manager-loop write in PROXY that updates those columns whenever the sensor crosses a level boundary. Matches the original ADR's intent without changing Major.
+2. **Promote ADR 022 to `Accepted` with the probe design as the canonical path** and amend PROXY's ARCHITECTURE.md § 9 to drop the "drives `shell_pool_state.paused`" claim — the interim is just observe-only-from-PROXY, and Major owns its own pressure awareness.
+
+Choice deferred to handler; this amendment is documentation-only. PROXY's `docs/ARCHITECTURE.md` § 9 received a parallel qualification edit on 2026-05-22 noting "observe-only in practice; write-back to `shell_pool_state.paused` deferred."
