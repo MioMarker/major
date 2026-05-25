@@ -262,7 +262,61 @@ When a human (or automation) applies the `needs-triage` label to a GitHub issue 
 - Check Supabase function logs for `[MajorGithubWebhook]` error lines around the delivery timestamp.
 - If the delivery failed (non-2xx), use "Redeliver" in GitHub's webhook UI to replay it without re-labelling.
 
-### 2.6 Inbound trigger smoke test
+### 2.6 First green end-to-end (core-loop smoke, bypass triage)
+
+**Run this first** after initial setup (§1), before trusting any inbound path. It validates the *core loop* — claim → implementer → PR → finalize → `ready-for-review` — in isolation, bypassing the inbound triage pipeline (validated separately in §2.7). A Brief is seeded directly at `ready-for-agent`, so triage and the path-blocker are out of the picture.
+
+**Prerequisites.**
+
+- Schema applied + edge functions deployed + secrets set (§1.2–§1.4). Schema applies via **direct `psql`, not `supabase db push`** — the dev project shares `_supabase_migrations` history with HealthBite, which blocks push (see §1.2 and the `20260509000004_gits_renames.sql` header).
+- A **scratch** target repo the `major-shell-bot` PAT can clone + push to — **not** `healthbite`/`healix`. Create e.g. `MioMarker/major-smoke` with a `README.md` and a `dev` branch.
+- A Shell `.env` (§1.7) with real tokens.
+
+**Steps.**
+
+1. Seed one `ready-for-agent` Brief (bypasses triage):
+
+   ```bash
+   SUPABASE_DB_PASSWORD='<dev-postgres-admin-password>' \
+     scripts/seed-test-brief.sh --repo MioMarker/major-smoke
+   ```
+
+   Note the printed `brief_id`. The Brief carries a trivial one-line-README PRD.
+
+2. Boot exactly one Shell (§1.7) — now memory-capped (`MAJOR_SHELL_MEMORY`, default 4g):
+
+   ```bash
+   scripts/shell-up.sh
+   ```
+
+   It registers via heartbeat, then within ~10s polls `major-claim-brief` and claims the Brief.
+
+3. Watch the loop. In the UI (`/briefs`) the Brief moves `ready-for-agent` → `agent-running` → `ready-for-review`. Or via SQL:
+
+   ```sql
+   SELECT id, status, pr_url FROM major.briefs ORDER BY id DESC LIMIT 3;
+   SELECT type, actor, created_at FROM major.events WHERE brief_id = <brief_id> ORDER BY created_at;
+   ```
+
+4. Confirm the artifacts:
+
+   - A PR on the scratch repo (authored by `major-shell-bot`) targeting `dev` with the one-line README change.
+   - `briefs.status = 'ready-for-review'` and `pr_url` populated.
+   - A `git-change` row in `major.brief_artifacts` for the Run.
+   - Events end with `run-ended` (outcome `succeeded`) → `status-transitioned` to `ready-for-review`.
+
+**Pass criterion:** the Brief reaches `ready-for-review` with a PR and the Run's `tachikoma-implementer` verification is `pass`. That is a green core loop.
+
+**If it stalls:**
+
+- Stuck `agent-running`, no progress → `docker logs shell-A`. Usual causes: clone failed (PAT lacks repo access) or Claude auth missing (`CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY`).
+- Bounced to `ready-for-human` → a required verification failed; inspect `major.verification_results` for the Run + the Tachikoma transcript.
+- Returned to `ready-for-agent` after ~5 min with no Shell progress → lease expired (Reaper swept it); the Shell died or hung — check container logs.
+- No claim at all → confirm the Shell registered (`SELECT * FROM major.shells;`) and the Brief is `ready-for-agent` with a non-null `git_repository_ref`.
+
+After this passes, validate the inbound triage pipeline via §2.7.
+
+### 2.7 Inbound trigger smoke test
 
 Use this procedure to confirm that the end-to-end inbound pipeline — GitHub issue → `needs-triage` label → Triage Session → auto-triage → Brief — is functioning. Run it after initial setup, after webhook re-registration, or any time you suspect the inbound path is broken.
 
@@ -405,8 +459,9 @@ Record each execution of this procedure here with date, who ran it, outcome, and
 | Date | Who | Outcome | Notes |
 |---|---|---|---|
 | 2026-05-12 | Tachikoma implementer (run 10648, Brief 57) | Code review only — live test not run from sandbox | Verified webhook label constant `"needs-triage"`, `initiator_actor = "integration:github"`, and `trigger_payload` field names all match the Check 1–6 queries. Found §1.4 deploy loop was missing 14 functions added since initial authoring (including `major-auto-triage-sessions`, `major-rearm-brief`, `major-record-telemetry`, and others); deploy list corrected in this PR. A live end-to-end run against the dev environment should be performed manually to validate Check 3 (auto-triage session processing) before next Shell boot. |
+| 2026-05-25 | Claude (core-loop smoke, §2.6 — NOT this inbound test) | GREEN — Brief 64 → `ready-for-review`, run 10655 succeeded, PR `MioMarker/major-smoke#1` | First live end-to-end run of the **core loop** (seed `ready-for-agent` Brief → claim → implementer → PR → finalize), bypassing triage. Surfaced + fixed two latent bugs the never-run pipeline hid: (1) `shell/Dockerfile` COPY omitted `repair-helpers.ts` → in-image `tsc` failed; (2) clone used `Authorization: Bearer`, which GitHub's git endpoint rejects for PATs → switched to HTTP Basic auth. `tachikoma-implementer` pass; ci-rollup skipped (no CI on scratch repo). The **inbound triage pipeline** (Checks 1–6 above) remains unvalidated — that's the next smoke. |
 
-### 2.7 Monthly operator checklist
+### 2.8 Monthly operator checklist
 
 Run on the first business day of each month:
 
@@ -414,7 +469,7 @@ Run on the first business day of each month:
 - Confirm Supabase service-role key and `GITHUB_WEBHOOK_SECRET` are still the values stored in 1Password.
 - Spot-check `major.telemetry_records` for unusual volumes of `github-rate-limited`, `eval-gate-signature-mismatch`, or `tachikoma-bash-observed (decision='denied')` records since the last check.
 
-### 2.8 Retry budget
+### 2.9 Retry budget
 
 `briefs.max_attempts` caps the number of times a Brief is automatically re-queued after a failed Run. The default is `3`; Triage can override per-Brief via the `set-max-attempts` Change Operation.
 

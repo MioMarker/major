@@ -8,19 +8,27 @@
 #   scripts/shell-up.sh --build shell-B  rebuild then boot shell-B
 #
 # Env overrides:
-#   MAJOR_ENV_FILE     path to env file (default: ~/Projects/major/.env)
-#   MAJOR_SHELL_IMAGE  image tag (default: major-shell:latest)
+#   MAJOR_ENV_FILE      path to env file (default: ~/Projects/major/.env)
+#   MAJOR_SHELL_IMAGE   image tag (default: major-shell:latest)
+#   MAJOR_SHELL_MEMORY  hard memory cap (default: 4g)
 #
 # Notes:
 #   - --rm: container removed on exit (matches existing pattern; no detached daemon to track).
 #   - --env-file: secrets sourced from .env; no inline values in the command line.
 #   - SHELL_ID is forced to match the container name so they stay in lockstep
 #     even when you boot a non-default Shell (e.g. shell-B).
+#   - --memory / --memory-swap: bound the blast radius. A runaway Tachikoma
+#     (claude subprocess) or a target-repo build that balloons gets OOM-killed
+#     inside the container instead of growing the OrbStack VM and starving the
+#     Mac host (the Jetsam failure mode). memory == memory-swap disables swap
+#     beyond the cap. Default 4g covers claude (~1.5g) + the Node daemon + a
+#     target-repo npm/tsc/test toolchain; raise MAJOR_SHELL_MEMORY for heavy repos.
 
 set -euo pipefail
 
 ENV_FILE="${MAJOR_ENV_FILE:-$HOME/Projects/major/.env}"
 IMAGE="${MAJOR_SHELL_IMAGE:-major-shell:latest}"
+MEMORY="${MAJOR_SHELL_MEMORY:-4g}"
 SHELL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/shell"
 
 BUILD=0
@@ -51,9 +59,11 @@ if docker ps --format '{{.Names}}' | grep -qx "$NAME"; then
   docker stop "$NAME" >/dev/null
 fi
 
-echo "==> running $IMAGE as $NAME (env from $ENV_FILE)"
+echo "==> running $IMAGE as $NAME (env from $ENV_FILE, memory cap $MEMORY)"
 exec docker run --rm \
   --name "$NAME" \
   --env-file "$ENV_FILE" \
   -e "SHELL_ID=$NAME" \
+  --memory "$MEMORY" \
+  --memory-swap "$MEMORY" \
   "$IMAGE"

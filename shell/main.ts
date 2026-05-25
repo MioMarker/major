@@ -1646,12 +1646,19 @@ async function prepareSandbox(claim: ClaimResponse): Promise<string> {
   const baseBranch = claim.brief.baseBranch ?? "dev";
   const featureBranch = `major/brief-${claim.brief.id}`;
 
+  // GitHub's git-over-HTTPS endpoint rejects `Authorization: Bearer <token>`
+  // for personal access tokens (both fine-grained and classic) and falls back
+  // to a Basic-auth challenge — the clone then fails with "could not read
+  // Username". Bearer is only accepted for GitHub App installation tokens.
+  // Use HTTP Basic auth (token as password) instead, which GitHub accepts for
+  // every PAT type. The header still travels via GIT_CONFIG_* env, not argv.
+  const basicAuth = Buffer.from(`x-access-token:${env.githubToken}`).toString("base64");
   await runShellCmd("git", ["clone", "--depth", "50", cloneUrl, sandboxDir], {
     env: {
       ...process.env,
       GIT_CONFIG_COUNT: "1",
       GIT_CONFIG_KEY_0: "http.extraheader",
-      GIT_CONFIG_VALUE_0: `Authorization: Bearer ${env.githubToken}`,
+      GIT_CONFIG_VALUE_0: `Authorization: Basic ${basicAuth}`,
     },
   });
 
