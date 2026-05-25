@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { listBriefs, listBriefsEligibleForMerge } from "@/lib/api/briefs";
+import { listBriefsEligibleForMerge, listBriefsPaged } from "@/lib/api/briefs";
 import { getServerAuthToken } from "@/lib/auth-server";
 import { formatRelativeAge } from "@/lib/utils";
 import type {
@@ -19,14 +19,19 @@ import type {
 } from "@/lib/types";
 import { MergeAllButton } from "@/components/briefs/MergeAllButton";
 import { BriefsFilters } from "./_filters";
+import { BriefsPagination } from "./_pagination";
 import { QuickStartButton } from "./_quick-start-button";
 import { DeleteBriefButton } from "./_delete-brief-button";
 import { BriefRow } from "./_brief-row";
 import { PrBadge } from "./_pr-badge";
 
 interface PageProps {
-  searchParams: { status?: string; classification?: string };
+  searchParams: { status?: string; classification?: string; page?: string };
 }
+
+// One page worth of Briefs. The endpoint caps at 200; 50 keeps the table
+// readable while real Prev/Next paging makes every Brief reachable.
+const BRIEFS_PER_PAGE = 50;
 
 const STATUS_VALUES: BriefStatus[] = [
   "ready-for-triage",
@@ -65,15 +70,19 @@ export default async function BriefsViewPage({ searchParams }: PageProps) {
     ? (searchParams.classification as BriefClassification)
     : undefined;
 
+  const parsedPage = Number(searchParams.page);
+  const page =
+    Number.isInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+  const offset = (page - 1) * BRIEFS_PER_PAGE;
+
   const authToken = await getServerAuthToken();
-  const [briefs, eligibleForMerge] = await Promise.all([
-    listBriefs({ status, classification, authToken: authToken ?? undefined }),
+  const [{ briefs, total }, eligibleForMerge] = await Promise.all([
+    listBriefsPaged(
+      { status, classification, authToken: authToken ?? undefined },
+      { limit: BRIEFS_PER_PAGE, offset },
+    ),
     listBriefsEligibleForMerge(authToken ?? undefined),
   ]);
-
-  const activeCount = briefs.filter(
-    (b) => b.status !== "done" && b.status !== "wontfix",
-  ).length;
 
   return (
     <AppShell active="/">
@@ -81,9 +90,9 @@ export default async function BriefsViewPage({ searchParams }: PageProps) {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Briefs</h1>
           <p className="text-sm text-muted-foreground">
-            {briefs.length === 0
+            {total === 0
               ? "No briefs yet."
-              : `${briefs.length} brief${briefs.length !== 1 ? "s" : ""} · ${activeCount} active`}
+              : `${total} brief${total !== 1 ? "s" : ""}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -210,6 +219,15 @@ export default async function BriefsViewPage({ searchParams }: PageProps) {
           </TableBody>
         </Table>
       </div>
+      {total > 0 && (
+        <BriefsPagination
+          page={page}
+          perPage={BRIEFS_PER_PAGE}
+          total={total}
+          status={status}
+          classification={classification}
+        />
+      )}
     </AppShell>
   );
 }

@@ -1,4 +1,4 @@
-import { getMockBrief, listMockBriefs, listMockQaBriefs } from "@/lib/mock/briefs";
+import { getMockBrief, listMockBriefs, listMockBriefsPaged, listMockQaBriefs } from "@/lib/mock/briefs";
 import type { Brief, BriefClassification, BriefDetail, BriefStatus } from "@/lib/types";
 import { USE_MOCK, majorFetch } from "@/lib/api/client";
 
@@ -7,6 +7,18 @@ export interface ListBriefsFilters {
   classification?: BriefClassification;
   ageMaxHours?: number;
   authToken?: string;
+}
+
+// Paging window passed through to the `major-list-briefs` endpoint. `limit`
+// clamps server-side to 1–200 (default 50); `offset` is 0-based.
+export interface BriefsPage {
+  limit?: number;
+  offset?: number;
+}
+
+export interface BriefsListResult {
+  briefs: Brief[];
+  total: number;
 }
 
 export async function listBriefs(filters: ListBriefsFilters = {}): Promise<Brief[]> {
@@ -18,7 +30,7 @@ export async function listBriefs(filters: ListBriefsFilters = {}): Promise<Brief
   }
   // API contract: GET ?status=&classification=&repo=&limit=&offset=
   // Returns { briefs: Brief[], total: number }. ageMaxHours is filtered client-side.
-  const resp = await majorFetch<{ briefs: Brief[]; total: number }>("major-list-briefs", {
+  const resp = await majorFetch<BriefsListResult>("major-list-briefs", {
     query: {
       status: filters.status,
       classification: filters.classification,
@@ -31,6 +43,32 @@ export async function listBriefs(filters: ListBriefsFilters = {}): Promise<Brief
     briefs = briefs.filter((b) => new Date(b.created_at).getTime() >= cutoff);
   }
   return briefs;
+}
+
+// Paged variant for the Briefs View. Surfaces `total` so the UI can render a
+// page count and Prev/Next controls. Unlike `listBriefs`, this does NOT support
+// `ageMaxHours` — that filter runs client-side against a single fetched window
+// and would make `total` meaningless under paging, so it's intentionally
+// excluded from the paged path.
+export async function listBriefsPaged(
+  filters: ListBriefsFilters = {},
+  page: BriefsPage = {},
+): Promise<BriefsListResult> {
+  if (USE_MOCK) {
+    return listMockBriefsPaged(
+      { status: filters.status, classification: filters.classification },
+      page,
+    );
+  }
+  return majorFetch<BriefsListResult>("major-list-briefs", {
+    query: {
+      status: filters.status,
+      classification: filters.classification,
+      limit: page.limit,
+      offset: page.offset,
+    },
+    authToken: filters.authToken,
+  });
 }
 
 export async function getBrief(id: number, authToken?: string): Promise<BriefDetail | null> {
