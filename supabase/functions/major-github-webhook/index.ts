@@ -204,7 +204,7 @@ async function maybeAutoCloseBrief(
 ): Promise<void> {
   const { data: brief, error: lookupErr } = await client
     .from("briefs")
-    .select("id, status, source_issue_repo, source_issue_number, title, pr_url")
+    .select("id, status, source_issue_repo, source_issue_number, pr_url")
     .eq("id", briefId)
     .maybeSingle();
   if (lookupErr) {
@@ -278,7 +278,9 @@ async function maybeAutoCloseBrief(
       issueNumber,
       brief: {
         id: briefId,
-        title: typeof brief.title === "string" ? brief.title : "",
+        // briefs has no `title` column (titles are content-derived); use the
+        // PR title from the webhook payload for the resolution comment.
+        title: typeof pr.title === "string" ? pr.title : "",
         pr_url: typeof brief.pr_url === "string" ? brief.pr_url : null,
         status: targetStatus,
       },
