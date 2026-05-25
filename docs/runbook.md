@@ -264,19 +264,25 @@ Telemetry Records live in `major.telemetry_records` and are queried similarly. E
 
 ### 2.5 Inbound issue trigger
 
-When a human (or automation) applies the `needs-triage` label to a GitHub issue in a driven repo, the `major-github-webhook` function intercepts the `issues.labeled` event, creates a Triage Session against that issue's content, runs auto-triage, and produces a Draft Brief. If the Draft Brief is accepted, it is queued at `ready-for-agent`.
+When a human (or automation) applies the `needs-triage` label to a GitHub issue in a watched repo (`MioMarker/major`, `MioMarker/healthbite`, `MioMarker/healix`), the `major-github-webhook` function intercepts the `issues.labeled` event (also `issues.opened` when the issue is opened already carrying the label, and only when `sender.type = User`) and **creates a Triage Session** — status `open`, with the issue's title, body, URL, and author captured in `trigger_payload` — then emits a `triage-session-created` Event. That is the full extent of the webhook's inbound work: it does **not** run auto-triage, post a comment, transition the label, or create a Brief.
+
+Turning that Triage Session into a Brief is a **separate step**: auto-triage (`major-auto-triage-sessions`). It is **not scheduled** — it runs only when a human clicks **Auto Triage** in the UI (`/triage`) or something POSTs the function. Auto-triage calls the LLM, runs the path-blocker, writes a Change Set, closes the Session, and — when the path-blocker is clear — applies the Change Set to produce a `ready-for-agent` Brief. See §2.7 for the step-by-step (Checks 1–6).
 
 **Operator guide.**
 
-1. Apply the `needs-triage` label to the issue in GitHub. The label must match the configured name exactly (`needs-triage`); any casing mismatch silently drops the event.
-2. Within a few seconds, expect: a comment posted on the issue confirming intake, and the label transitioning from `needs-triage` to `needs-triaged` (or `needs-triage-failed` on error).
-3. A new Brief appears in the Briefs View at `draft` or `ready-for-agent` depending on the auto-triage outcome.
+1. Apply the `needs-triage` label to the issue in GitHub. The label must match the configured name exactly (`needs-triage`); any casing mismatch silently drops the event. The webhook fires only for issues in a watched repo.
+2. Within a few seconds, a Triage Session appears at `/triage` (status `open`). No comment is posted to the issue and the label is not changed.
+3. Trigger **Auto Triage** (UI button or POST). A Brief then appears in the Briefs View at `ready-for-agent` (path-blocker clear) or its Change Set lands in Pending QA at `/pending-qa` (path-blocker hit → human apply).
+
+> **Not yet implemented (v1):** the intake-confirmation comment on the issue and a `needs-triage → needs-triaged / needs-triage-failed` label state machine. Don't track triage progress via label state — read `major.triage_sessions` / the Briefs View instead.
 
 **Nothing happened — troubleshooting.**
 
+- **First, confirm the webhook is registered on the repo with the `Issues` event** (§1.6). A webhook missing `Issues` is the most common cause — it silently never fires on label. (Both `MioMarker/major` and `MioMarker/healthbite` were found missing it and fixed on 2026-05-25.)
 - Check the webhook delivery log: GitHub repo → Settings → Webhooks → Recent Deliveries. Confirm an `issues` event with `action=labeled` was delivered and returned `2xx`.
 - Confirm the label name in the delivery payload matches `needs-triage` exactly.
-- Check Supabase function logs for `[MajorGithubWebhook]` error lines around the delivery timestamp.
+- Check Supabase function logs for `[major-github-webhook]` error lines around the delivery timestamp.
+- If a Session was created but no Brief appeared, that is expected until you trigger Auto Triage (step 3). If Auto Triage ran and failed, check logs for `[major-auto-triage-sessions]`.
 - If the delivery failed (non-2xx), use "Redeliver" in GitHub's webhook UI to replay it without re-labelling.
 
 ### 2.6 First green end-to-end (core-loop smoke, bypass triage)
