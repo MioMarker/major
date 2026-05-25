@@ -27,7 +27,7 @@
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import { runSandboxAgent, type TachikomaBriefSnapshot, type TachikomaRunSnapshot, type ParsedEvent, type InspectedRunData } from "./tachikoma";
+import { runSandboxAgent, PLANNER_PROMPT_VERSION, type TachikomaBriefSnapshot, type TachikomaRunSnapshot, type ParsedEvent, type InspectedRunData } from "./tachikoma";
 import { parsePlannerOutput, shouldRunPlanner } from "./planner-helpers";
 import { sanitizeTranscriptTail, shouldRearm, TRANSCRIPT_TAIL_BYTES } from "./repair-helpers";
 import {
@@ -886,6 +886,22 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
     //       subprocess does not park the Brief; Implementer still runs.
     if (shouldRunPlanner(brief)) {
       log("info", "phase: planner starting", { runId: claim.run.id });
+      await callRecordTelemetry({
+        runId: claim.run.id,
+        observationType: "tachikoma-phase-started",
+        payload: {
+          role: "planner",
+          promptVersion: PLANNER_PROMPT_VERSION,
+          shell_id: env.shellId,
+        },
+        idempotencyKey: `${claim.run.id}:tachikoma-phase-started:planner:${env.shellId}`,
+      }).catch((err) => {
+        log("warn", "phase-started telemetry write failed (continuing)", {
+          runId: claim.run.id,
+          role: "planner",
+          error: errToString(err),
+        });
+      });
       const planner = await runSandboxAgent({
         role: "planner",
         sandboxDir,
@@ -893,6 +909,10 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
         run: runMeta,
         onStreamEvent,
       });
+      totalParseErrors += planner.tachikomaParseErrors;
+
+      const plannerOutput = parsePlannerOutput(planner.parsedOutput);
+
       log("info", "phase: planner ended", {
         runId: claim.run.id,
         ok: planner.ok,
@@ -900,9 +920,26 @@ async function executeRun(claim: ClaimResponse): Promise<void> {
         durationMs: planner.durationMs,
         parseErrors: planner.tachikomaParseErrors,
       });
-      totalParseErrors += planner.tachikomaParseErrors;
-
-      const plannerOutput = parsePlannerOutput(planner.parsedOutput);
+      await callRecordTelemetry({
+        runId: claim.run.id,
+        observationType: "tachikoma-phase-ended",
+        payload: {
+          role: "planner",
+          promptVersion: planner.promptVersion,
+          ok: planner.ok,
+          exitCode: planner.exitCode,
+          durationMs: planner.durationMs,
+          shell_id: env.shellId,
+          scopeCheck: plannerOutput?.scope_check ?? null,
+        },
+        idempotencyKey: `${claim.run.id}:tachikoma-phase-ended:planner:${env.shellId}`,
+      }).catch((err) => {
+        log("warn", "phase-ended telemetry write failed (continuing)", {
+          runId: claim.run.id,
+          role: "planner",
+          error: errToString(err),
+        });
+      });
       verifications.push({
         check_name: "tachikoma-planner",
         outcome: planner.ok ? "pass" : "fail",
