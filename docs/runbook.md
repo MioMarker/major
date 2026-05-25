@@ -373,8 +373,11 @@ After labeling, the Triage Session sits `open` until `major-auto-triage-sessions
 ```bash
 curl -X POST \
   -H "Authorization: Bearer <service-role-key>" \
+  -H "X-Major-Shell-Id: smoke" \
   https://nuihvxluxdpdjgkvtdih.supabase.co/functions/v1/major-auto-triage-sessions
 ```
+
+The `X-Major-Shell-Id` header is **required** for service-role callers — the auth helper (`_shared/auth.ts`) attributes the call to `shell:<id>`. Omitting it returns `500 Service-role caller must set X-Major-Shell-Id`. Any non-empty value works for smoke purposes. (The dev service-role key is the new `sb_secret_` format, so this function must stay `verify_jwt = false` — which it is.)
 
 Then confirm the session is closed and the transcript has an auto-triage message:
 
@@ -446,7 +449,7 @@ Expected:
 - One row (or more if the Triage Tachikoma split the issue into multiple Briefs).
 - `source_issue_repo` and `source_issue_number` match the test issue.
 - `status = 'ready-for-agent'` (auto-apply path) or `'ready-for-triage'` (if still awaiting human apply).
-- `author_actor = 'major:auto-triage'` — confirms that the Brief Content was attributed to the Triage Tachikoma, not to the human who filed the issue.
+- `author_actor = 'agent:triage-tachikoma'` — confirms that the Brief Content was attributed to the Triage Tachikoma, not to the human who pressed Apply (set by `apply_change_set` for GitHub-seeded sessions, per `20260513000000`). Note: `CLAUDE.md` and the `AUTO_TRIAGE_ACTOR` constant still say `major:auto-triage`; see #164 to canonicalize the name.
 
 **All six checks passing confirms the full inbound pipeline is operational.**
 
@@ -460,6 +463,7 @@ Record each execution of this procedure here with date, who ran it, outcome, and
 |---|---|---|---|
 | 2026-05-12 | Tachikoma implementer (run 10648, Brief 57) | Code review only — live test not run from sandbox | Verified webhook label constant `"needs-triage"`, `initiator_actor = "integration:github"`, and `trigger_payload` field names all match the Check 1–6 queries. Found §1.4 deploy loop was missing 14 functions added since initial authoring (including `major-auto-triage-sessions`, `major-rearm-brief`, `major-record-telemetry`, and others); deploy list corrected in this PR. A live end-to-end run against the dev environment should be performed manually to validate Check 3 (auto-triage session processing) before next Shell boot. |
 | 2026-05-25 | Claude (core-loop smoke, §2.6 — NOT this inbound test) | GREEN — Brief 64 → `ready-for-review`, run 10655 succeeded, PR `MioMarker/major-smoke#1` | First live end-to-end run of the **core loop** (seed `ready-for-agent` Brief → claim → implementer → PR → finalize), bypassing triage. Surfaced + fixed two latent bugs the never-run pipeline hid: (1) `shell/Dockerfile` COPY omitted `repair-helpers.ts` → in-image `tsc` failed; (2) clone used `Authorization: Bearer`, which GitHub's git endpoint rejects for PATs → switched to HTTP Basic auth. `tachikoma-implementer` pass; ci-rollup skipped (no CI on scratch repo). The **inbound triage pipeline** (Checks 1–6 above) remains unvalidated — that's the next smoke. |
+| 2026-05-25 | Claude (inbound smoke, §2.7) | GREEN (after 3 fixes) — all Checks 1–6 pass; issue #163 → Brief `ready-for-agent`, `author_actor = agent:triage-tachikoma` | First live inbound run. Surfaced + fixed: (1) `MioMarker/major` webhook lacked the `issues` event (added); (2) Check 3 curl missing required `X-Major-Shell-Id` header (fixed above); (3) migration drift — inbound attribution (#80 / `20260513000000`) was never applied to dev, and `20260512000001`+`20260513000000` carry a `classifications`-cast regression of `20260511000004`. Applied `20260513000000` + forward-fix `20260525000000` (cast) + `20260525000001` (`brief_paths_blocked`). See #164. Artifacts cleaned up. |
 
 ### 2.8 Monthly operator checklist
 
