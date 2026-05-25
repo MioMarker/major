@@ -316,6 +316,20 @@ export type TriageSession = {
   updatedAt: Date | string;
 };
 
+// PR-fact snapshot stored on briefs.pr_derived_facts (ADR 021). The field set is
+// driven by GitHub's API shape and may expand without a migration (JSONB), so the
+// known v1 keys are typed and unknown keys are permitted.
+export type PrDerivedFacts = {
+  mergeable?: boolean | null;
+  draft?: boolean;
+  requested_reviewer_count?: number;
+  requested_team_count?: number;
+  additions?: number | null;
+  deletions?: number | null;
+  changed_files?: number | null;
+  [key: string]: unknown;
+};
+
 export type Brief = {
   id: number;
   status: BriefStatus;
@@ -327,6 +341,9 @@ export type Brief = {
   baseBranch: string | null;
   prStatus: PullRequestStatus;
   prUrl: string | null;
+  // Latest PR-fact snapshot for the Brief's branch (ADR 021). Overwritten (not
+  // appended) on each `pull_request` webhook event; `{}` when no PR exists.
+  prDerivedFacts: PrDerivedFacts;
   queueRank: number | null;
   priorityClass: string | null;
   placementReason: string | null;
