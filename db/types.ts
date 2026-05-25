@@ -135,7 +135,9 @@ export type KnownTelemetryObservation =
   | 'heartbeat-lapse'
   | 'external-system-error'
   | 'retry-attempt'
-  | 'repair-inspection-trigger';
+  | 'repair-inspection-trigger'
+  | 'tachikoma-phase-started'
+  | 'tachikoma-phase-ended';
 export type TelemetryObservationType =
   | KnownTelemetryObservation
   | (string & Record<never, never>);
