@@ -33,6 +33,14 @@ This creates the `major.*` schema, all tables in `supabase/migrations/2026050900
 
 The password is the dev project's Postgres admin password (Jonathan has it in 1Password). Never inline it in scripts or docs.
 
+> **Verify the live body after any RPC-touching push.** The dev project's `schema_migrations` history is shared with HealthBite and unreliable: `supabase db push` skips any version already recorded there, even when that version's body never actually took on this project. A merged migration can therefore read as "applied" per history yet be absent from the live `major` schema (incident #169). After pushing a migration that creates/replaces a function, connect to the dev Postgres (same admin credentials) and confirm the live body:
+>
+> ```bash
+> psql "<dev-connection-string>" -c "\sf major.claim_next_brief"
+> ```
+>
+> To force-replace a body that history wrongly marks applied, supersede it with a **new, later-versioned** migration — a fresh version number always runs. See `20260525000004_redeploy_claim_next_brief_attempt_number.sql` for the pattern.
+
 ### 1.3 Set edge function secrets
 
 ```bash
@@ -509,6 +517,8 @@ Run on the first business day of each month:
 3. Record the reason in the UI prompt (or Brief Comments) so the audit trail reflects why the budget was overridden.
 
 If the Brief continues to exhaust its budget after re-arms, edit the Content (new revision → Triage Change Set) to give the agent better guidance rather than re-arming indefinitely.
+
+**If the cap never fires (Runs pile up at `attempt_number = 1`).** This is deployment drift, not a logic bug. The live `claim_next_brief` body is the pre-ADR-014 version, which inserts Runs without computing `attempt_number`/`purpose` — so every Run defaults to `attempt_number = 1` and the `>= max_attempts` check in `finalize_run` / `reaper_sweep` can never trip (incident #169). The repo logic (`20260516000000`, redeployed by `20260525000004`) is correct. The tell: for a looping Brief, `select attempt_number, purpose from major.runs where brief_id = <id> order by id` returns all `1` / `execute`. Confirm the live body per §1.2, then redeploy via a fresh-versioned migration.
 
 ---
 
