@@ -24,6 +24,10 @@ import { QuickStartButton } from "./_quick-start-button";
 import { DeleteBriefButton } from "./_delete-brief-button";
 import { BriefRow } from "./_brief-row";
 import { PrBadge } from "./_pr-badge";
+import { BriefSelectionProvider } from "./_selection";
+import { SelectAllCheckbox } from "./_select-all-checkbox";
+import { RowCheckbox } from "./_row-checkbox";
+import { BulkDeleteBar } from "./_bulk-delete-bar";
 
 interface PageProps {
   searchParams: { status?: string; classification?: string; page?: string };
@@ -84,6 +88,12 @@ export default async function BriefsViewPage({ searchParams }: PageProps) {
     listBriefsEligibleForMerge(authToken ?? undefined),
   ]);
 
+  // agent-running Briefs can't be deleted (mirrors the single-delete guard), so
+  // they're excluded from selection / select-all.
+  const selectableIds = briefs
+    .filter((brief) => brief.status !== "agent-running")
+    .map((brief) => brief.id);
+
   return (
     <AppShell active="/">
       <div className="mb-6 flex items-center justify-between">
@@ -101,10 +111,15 @@ export default async function BriefsViewPage({ searchParams }: PageProps) {
         </div>
       </div>
       <BriefsFilters status={status} classification={classification} />
+      <BriefSelectionProvider selectableIds={selectableIds}>
+      <BulkDeleteBar />
       <div className="mt-4 rounded-lg border bg-card">
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10">
+                <SelectAllCheckbox />
+              </TableHead>
               <TableHead>Brief</TableHead>
               <TableHead className="w-[160px]">Status</TableHead>
               <TableHead className="w-[160px]">Classifications</TableHead>
@@ -117,6 +132,14 @@ export default async function BriefsViewPage({ searchParams }: PageProps) {
           <TableBody>
             {briefs.map((brief) => (
               <BriefRow key={brief.id} briefId={brief.id}>
+                {/* Select */}
+                <TableCell className="w-10">
+                  <RowCheckbox
+                    briefId={brief.id}
+                    disabled={brief.status === "agent-running"}
+                  />
+                </TableCell>
+
                 {/* Brief — title + meta */}
                 <TableCell>
                   <div className="font-medium leading-snug">
@@ -202,7 +225,7 @@ export default async function BriefsViewPage({ searchParams }: PageProps) {
             ))}
             {briefs.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="py-12 text-center">
+                <TableCell colSpan={8} className="py-12 text-center">
                   <p className="text-muted-foreground">No briefs match these filters.</p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     <Link
@@ -219,6 +242,7 @@ export default async function BriefsViewPage({ searchParams }: PageProps) {
           </TableBody>
         </Table>
       </div>
+      </BriefSelectionProvider>
       {total > 0 && (
         <BriefsPagination
           page={page}

@@ -344,7 +344,7 @@ Full catalog in `docs/failure-modes.md`. Key entries:
 | Assignment Metadata | FIFO with `queue_rank` is enough; no per-Brief-to-Shell assignment |
 | Multi-repo per Brief | Each Brief names one Git Repository Reference; cross-repo splits across separate parents |
 | Maintainer Override | n/a at our scale |
-| Artifact Cleanup Policy | Manual cleanup; no janitor job in v1 |
+| Artifact Cleanup Policy | Artifact-blob cleanup still manual. **Exception (ADR 023):** a pg_cron janitor (`major.purge_done_briefs`) permanently deletes `done` Briefs ≥ 3 days after acceptance; cascade removes their artifacts/events/runs. `wontfix` and live Briefs are untouched. |
 | Realtime in-app edit mode | Out of scope; replaced entirely by Triage Session |
 | Voice / context awareness in dev app | Out |
 | Automated Acceptance Policy (wired) | Primitive exists in `artifact_type_contracts`; no policy granted automation in v1 |

@@ -90,7 +90,7 @@ for fn in \
 done
 ```
 
-Order doesn't matter; each function is independent. The reaper is invoked by `pg_cron`; the deploy command publishes the function — schedule registration is in the migration.
+Order doesn't matter; each function is independent. The reaper is invoked by `pg_cron`; the deploy command only publishes the function. **The reaper's pg_cron schedule is registered manually in the Supabase dashboard** (SQL editor / Database → Cron) — there is no `cron.schedule` for it in any migration. (The done-Brief purge job is different: its schedule *is* captured in a migration — see §2.10.)
 
 ### 1.5 Build and push the Shell image
 
@@ -519,6 +519,61 @@ Run on the first business day of each month:
 If the Brief continues to exhaust its budget after re-arms, edit the Content (new revision → Triage Change Set) to give the agent better guidance rather than re-arming indefinitely.
 
 **If the cap never fires (Runs pile up at `attempt_number = 1`).** This is deployment drift, not a logic bug. The live `claim_next_brief` body is the pre-ADR-014 version, which inserts Runs without computing `attempt_number`/`purpose` — so every Run defaults to `attempt_number = 1` and the `>= max_attempts` check in `finalize_run` / `reaper_sweep` can never trip (incident #169). The repo logic (`20260516000000`, redeployed by `20260525000004`) is correct. The tell: for a looping Brief, `select attempt_number, purpose from major.runs where brief_id = <id> order by id` returns all `1` / `execute`. Confirm the live body per §1.2, then redeploy via a fresh-versioned migration.
+
+### 2.10 Brief retention (done-Brief purge)
+
+`done` Briefs are permanently deleted once they have been `done` for ≥ 3 days. Implemented by `major.purge_done_briefs(retention_days int default 3)`, run daily at 09:17 UTC by the `major-purge-done-briefs` pg_cron job (ADR 023; migration `20260525000006_purge_done_briefs_cron.sql`). Unlike the reaper, **this schedule lives in the migration** — no dashboard step.
+
+- **Scope:** `status = 'done'` only. `wontfix` and all live Briefs are never touched.
+- **Age anchor:** the latest `status-transitioned` Event with `payload.to = 'done'` (the became-done time); for legacy `done` Briefs that lack it, `briefs.updated_at`.
+- **Cascade:** deleting the Brief removes its Events, Runs, Verification Results, Artifacts, Content Revisions, and Relationship edges. **Irreversible** — the only grace period is the 3-day window.
+
+**Preview what a sweep would delete (no delete):**
+
+```sql
+select b.id, b.status,
+       coalesce(
+         (select max(e.created_at) from major.events e
+          where e.brief_id = b.id and e.type = 'status-transitioned'
+            and e.payload->>'to' = 'done'),
+         b.updated_at) as became_done_at
+from major.briefs b
+where b.status = 'done'
+  and coalesce(
+        (select max(e.created_at) from major.events e
+         where e.brief_id = b.id and e.type = 'status-transitioned'
+           and e.payload->>'to' = 'done'),
+        b.updated_at) < now() - interval '3 days'
+order by became_done_at;
+```
+
+**Run it on demand** (returns the number deleted): `select major.purge_done_briefs(3);`
+
+**Confirm the job is scheduled / inspect recent runs:**
+
+```sql
+select jobid, schedule, command, active from cron.job where jobname = 'major-purge-done-briefs';
+select status, return_message, start_time
+from cron.job_run_details
+where jobid = (select jobid from cron.job where jobname = 'major-purge-done-briefs')
+order by start_time desc limit 5;
+```
+
+**See per-sweep telemetry:**
+
+```sql
+select created_at, payload from major.telemetry_records
+where observation_type = 'briefs-purged' order by created_at desc limit 5;
+```
+
+**Change the retention window or cadence:** migrations are append-only — do **not** edit `20260525000006`. Write a new, later-versioned migration that re-registers the job:
+
+```sql
+select cron.unschedule('major-purge-done-briefs');
+select cron.schedule('major-purge-done-briefs', '17 9 * * *', 'select major.purge_done_briefs(7);');
+```
+
+**Disable the auto-purge** (manual deletion still available via the Briefs View): `select cron.unschedule('major-purge-done-briefs');`
 
 ---
 
