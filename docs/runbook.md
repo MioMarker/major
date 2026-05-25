@@ -459,6 +459,7 @@ Record each execution of this procedure here with date, who ran it, outcome, and
 | Date | Who | Outcome | Notes |
 |---|---|---|---|
 | 2026-05-12 | Tachikoma implementer (run 10648, Brief 57) | Code review only — live test not run from sandbox | Verified webhook label constant `"needs-triage"`, `initiator_actor = "integration:github"`, and `trigger_payload` field names all match the Check 1–6 queries. Found §1.4 deploy loop was missing 14 functions added since initial authoring (including `major-auto-triage-sessions`, `major-rearm-brief`, `major-record-telemetry`, and others); deploy list corrected in this PR. A live end-to-end run against the dev environment should be performed manually to validate Check 3 (auto-triage session processing) before next Shell boot. |
+| 2026-05-25 | Claude (core-loop smoke, §2.6 — NOT this inbound test) | GREEN — Brief 64 → `ready-for-review`, run 10655 succeeded, PR `MioMarker/major-smoke#1` | First live end-to-end run of the **core loop** (seed `ready-for-agent` Brief → claim → implementer → PR → finalize), bypassing triage. Surfaced + fixed two latent bugs the never-run pipeline hid: (1) `shell/Dockerfile` COPY omitted `repair-helpers.ts` → in-image `tsc` failed; (2) clone used `Authorization: Bearer`, which GitHub's git endpoint rejects for PATs → switched to HTTP Basic auth. `tachikoma-implementer` pass; ci-rollup skipped (no CI on scratch repo). The **inbound triage pipeline** (Checks 1–6 above) remains unvalidated — that's the next smoke. |
 
 ### 2.8 Monthly operator checklist
 
