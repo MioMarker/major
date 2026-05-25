@@ -30,6 +30,13 @@ import * as path from "node:path";
 import { runSandboxAgent, type TachikomaBriefSnapshot, type TachikomaRunSnapshot, type ParsedEvent, type InspectedRunData } from "./tachikoma";
 import { parsePlannerOutput, shouldRunPlanner } from "./planner-helpers";
 import { sanitizeTranscriptTail, shouldRearm, TRANSCRIPT_TAIL_BYTES } from "./repair-helpers";
+import {
+  classifyGhChecks,
+  decideCiPoll,
+  CI_MAX_POLLS,
+  CI_POLL_INTERVAL_MS,
+  type CiOutcome,
+} from "./ci-helpers";
 
 // ────────────────────────────────────────────────────────────────────
 // Env + constants
@@ -82,9 +89,10 @@ function readEnv(): ShellEnv {
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const POLL_IDLE_MS = 10_000;
-const CI_POLL_INTERVAL_MS = 30_000;
-const CI_POLL_TIMEOUT_MS = 20 * 60_000; // 20 min per SPEC
 const TRIAGE_POLL_IDLE_MS = POLL_IDLE_MS;
+// CI poll cap lives in ci-helpers.ts (CI_POLL_INTERVAL_MS, CI_MAX_POLLS) per
+// ADR 017: ~4 reads / ~90s, replacing the prior 20-minute budget that drove
+// the MioMarker/healthbite retry storm.
 
 // HTTP retry policy for Major API calls. Exponential backoff with jitter.
 const MAX_HTTP_RETRIES = 5;
@@ -1794,9 +1802,31 @@ async function cleanupSandbox(sandboxDir: string, runId: number): Promise<void> 
 // ────────────────────────────────────────────────────────────────────
 // CI polling — uses `gh` to read the rollup status of the PR
 // ────────────────────────────────────────────────────────────────────
+//
+// ci-wait is an ADVISORY post-PR phase: CI keeps running on GitHub for human
+// review regardless of what the Shell reads. So the phase MUST NOT block or
+// loop on a read failure. Bug fixes here (the MioMarker/healthbite retry
+// storm):
+//
+//  - Bounded to ADR 017's cap (`1 + CI_MAX_POLLS` reads, ~90s) — no more
+//    20-minute loops. The pure poll-budget logic lives in ci-helpers.ts.
+//  - A permission-denied / unreadable checks read is a SKIP, not a retry.
+//    The Shell's `major-shell-bot` PAT cannot read a commit's
+//    statusCheckRollup over GraphQL (needs Commit statuses / Checks: Read,
+//    which it lacks — runbook §1.7.1). The prior code shelled to
+//    `gh pr checks --json name,bucket`, which forces that GraphQL path and
+//    returned `Resource not accessible by personal access token`; the
+//    catch-all "keep polling" branch then burned the full 20-minute budget.
+//    We now (a) shell to plain `gh pr checks` (no `--json`), which resolves
+//    CI via the REST checks endpoint the PAT *can* read with Actions: Read,
+//    and (b) classify any residual denial as `unreadable` → advisory skip.
+//  - The 30s heartbeat keeps firing throughout: we fire one heartbeat per
+//    poll iteration as defense-in-depth so the 300s lease (ADR 019) never
+//    lapses mid-phase even if the background interval is starved. The lease
+//    length is NOT changed.
 
 interface CIWaitResult {
-  outcome: "pass" | "fail" | "skipped";
+  outcome: CiOutcome;
   durationMs: number;
   summary: string;
 }
@@ -1807,101 +1837,64 @@ async function waitForCI(args: {
   gitRepositoryRef: string;
 }): Promise<CIWaitResult> {
   const startedAt = Date.now();
-  const deadline = startedAt + CI_POLL_TIMEOUT_MS;
+  const done = (outcome: CiOutcome, summary: string): CIWaitResult => ({
+    outcome,
+    durationMs: Date.now() - startedAt,
+    summary,
+  });
 
-  while (Date.now() < deadline) {
+  // pollsSoFar counts re-polls (0 on the first read). The loop runs at most
+  // 1 + CI_MAX_POLLS times before decideCiPoll forces an advisory skip.
+  for (let pollsSoFar = 0; ; pollsSoFar += 1) {
     if (shuttingDown || leaseLostFlag) {
-      return {
-        outcome: "skipped",
-        durationMs: Date.now() - startedAt,
-        summary: shuttingDown ? "shutdown during CI wait" : "lease lost during CI wait",
-      };
+      return done("skipped", shuttingDown ? "shutdown during CI wait" : "lease lost during CI wait");
     }
 
-    try {
-      const result = await runShellCmdCapture("gh", [
-        "pr",
-        "checks",
-        String(args.prNumber),
-        "-R",
-        args.gitRepositoryRef,
-        "--json",
-        // `bucket` categorises each check's state into one of:
-        //   pass | fail | pending | skipping | cancel
-        // Earlier code referenced `conclusion` which is not a valid field
-        // on `gh pr checks --json`; gh exited 0 with empty stdout + an
-        // error on stderr, so JSON.parse threw on every poll iteration
-        // and the loop ran out the 20-minute timeout instead of resolving.
-        "name,bucket",
-      ], { cwd: args.sandboxDir });
+    // Defense-in-depth: heartbeat inside the poll loop so the lease is renewed
+    // even if the background 30s interval is delayed. Best-effort — a heartbeat
+    // failure here is logged and retried on the next iteration / interval tick.
+    await callHeartbeat({ initial: false }).catch((err) => {
+      log("warn", "ci-wait heartbeat failed (will retry)", { error: errToString(err) });
+    });
+    if (leaseLostFlag) {
+      return done("skipped", "lease lost during CI wait");
+    }
 
-      // gh exits non-zero with stderr "no checks reported on the '<branch>'
-      // branch" when the PR has no associated workflow runs. Treat that
-      // (and any other non-zero exit with empty stdout) as "no checks
-      // configured" — advisory skip — rather than letting JSON.parse on
-      // empty stdout throw and burn the 20-minute poll budget.
-      if (result.exitCode !== 0 || result.stdout.trim().length === 0) {
-        if (result.stderr.includes("no checks reported")) {
-          return {
-            outcome: "skipped",
-            durationMs: Date.now() - startedAt,
-            summary: "no CI checks registered on this PR",
-          };
-        }
-        // Some other gh failure mode — log and keep polling within the
-        // existing budget; transient errors (rate limits, network) clear.
-        log("debug", "gh pr checks returned non-success; will retry", {
+    // Plain `gh pr checks` (no `--json`) → REST checks endpoint, readable by
+    // the bot PAT with Actions: Read. classifyGhChecks reads gh's documented
+    // exit codes (0 pass / 8 pending / 1 fail / 2 cancel / 4 auth) plus stderr
+    // signatures; it never throws, so no JSON.parse can blow the budget.
+    const result = await runShellCmdCapture(
+      "gh",
+      ["pr", "checks", String(args.prNumber), "-R", args.gitRepositoryRef],
+      { cwd: args.sandboxDir },
+    );
+
+    const klass = classifyGhChecks(result);
+    const decision = decideCiPoll(klass, pollsSoFar, CI_MAX_POLLS);
+
+    if (decision.kind === "resolve") {
+      if (klass === "unreadable") {
+        // Advisory skip — do NOT loop on a permission denial.
+        log("warn", "ci-wait: checks unreadable by Shell token; skipping (advisory)", {
+          prNumber: args.prNumber,
           exitCode: result.exitCode,
           stderr: result.stderr.slice(0, 200),
         });
-        await sleep(CI_POLL_INTERVAL_MS);
-        continue;
       }
-
-      const checks = JSON.parse(result.stdout) as Array<{
-        name: string;
-        bucket: "pass" | "fail" | "pending" | "skipping" | "cancel";
-      }>;
-
-      // No checks reported via JSON either → also treat as skipped.
-      if (checks.length === 0) {
-        return {
-          outcome: "skipped",
-          durationMs: Date.now() - startedAt,
-          summary: "no CI checks registered on this PR",
-        };
-      }
-
-      const pending = checks.filter((c) => c.bucket === "pending");
-      const failed = checks.filter((c) => c.bucket === "fail" || c.bucket === "cancel");
-
-      if (pending.length === 0) {
-        if (failed.length > 0) {
-          return {
-            outcome: "fail",
-            durationMs: Date.now() - startedAt,
-            summary: `${failed.length} CI checks failed: ${failed.map((c) => c.name).join(", ")}`,
-          };
-        }
-        return {
-          outcome: "pass",
-          durationMs: Date.now() - startedAt,
-          summary: `${checks.length} CI checks passed`,
-        };
-      }
-    } catch (err) {
-      // Likely no checks yet, or gh transient error. Keep polling.
-      log("debug", "ci poll iter error (continuing)", { error: errToString(err) });
+      return done(decision.outcome, decision.reason);
     }
 
+    // decision.kind === "poll": checks still pending (or an unknown transient
+    // gh failure). Log and wait before the next bounded re-poll.
+    log("debug", "ci-wait: checks pending; will re-poll", {
+      prNumber: args.prNumber,
+      pollsSoFar,
+      maxPolls: CI_MAX_POLLS,
+      exitCode: result.exitCode,
+    });
     await sleep(CI_POLL_INTERVAL_MS);
   }
-
-  return {
-    outcome: "fail",
-    durationMs: Date.now() - startedAt,
-    summary: `CI wait timed out after ${Math.round(CI_POLL_TIMEOUT_MS / 60_000)}m`,
-  };
 }
 
 // ────────────────────────────────────────────────────────────────────

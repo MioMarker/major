@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --require ts-node/register stream-json-parser.test.ts planner-helpers.test.ts main.test.ts main-repair.test.ts",
+    "test": "node --test --require ts-node/register stream-json-parser.test.ts planner-helpers.test.ts main.test.ts main-repair.test.ts ci-helpers.test.ts",
     "start": "node dist/main.js",
     "dev": "ts-node main.ts"
   },

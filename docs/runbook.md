@@ -140,9 +140,26 @@ The PAT must grant the following on each of `MioMarker/major`, `MioMarker/health
 | `Contents: Write` | Shell | Push branches, create commits |
 | `Pull requests: Write` | Shell | Open / update PRs, post review comments |
 | `Issues: Write` | Shell + `major-github-webhook` (ADR 007 / 011) | Close source GitHub issue + post linking comment when the PR-merge webhook fires for a Brief with `briefs.source_issue_*` populated |
-| `Actions: Read` | Shell | Read CI status (Mode 1 pre-flight per ADR 017) |
+| `Actions: Read` | Shell | Read CI status (Mode 1 pre-flight per ADR 017; post-PR ci-wait phase in `shell/main.ts`) |
 
 **Expiration: max 1 year** (GitHub's ceiling for fine-grained PATs). Store the PAT in 1Password under `major-shell-bot github PAT`. Rotation is part of the operator's monthly checklist (§ 2.5). After rotation, update the Shell `.env` AND `npx -y supabase secrets set GITHUB_TOKEN=<new-token>` so the webhook handler also picks up the new value, then restart any running Shells so they pick up the new env var.
+
+#### CI-checks read: why `Actions: Read` is sufficient (and the `statusCheckRollup` 403 gotcha)
+
+The Shell's post-PR ci-wait phase reads CI via **plain `gh pr checks <n> -R <repo>`** (no `--json`). That variant resolves CI state through GitHub's **REST checks / check-runs** endpoint, which the bot PAT reads with `Actions: Read` only. This was a deliberate fix.
+
+The earlier code shelled to `gh pr checks --json name,bucket`. The `--json` projection forces `gh` down a **GraphQL** path that traverses `pullRequest.statusCheckRollup.nodes[].commit.statusCheckRollup`. Reading a *commit's* status-check rollup over GraphQL requires `Commit statuses: Read` (and, for some check shapes, `Checks: Read`) — permissions the bot PAT intentionally does **not** carry. For `major-shell-bot` that query returned:
+
+```
+GraphQL: Resource not accessible by personal access token
+(node.statusCheckRollup.nodes.0.commit.statusCheckRollup)
+```
+
+The ci-wait loop treated that denial as a retryable error and re-polled for ~20 minutes (incident: `MioMarker/healthbite` retry storm). `gh pr checks <n> -R <repo>` run manually with the same token *succeeded* precisely because the no-`--json` path uses REST, not the GraphQL rollup.
+
+**Resolution (no broader scope required):** the Shell now uses the plain REST path and, as defense-in-depth, classifies any residual permission denial / `statusCheckRollup` 403 / auth failure as **unreadable → advisory SKIP** (CI still runs on GitHub for human review; the read is advisory). So `Actions: Read` remains the only CI-related grant the bot PAT needs.
+
+**Optional (not required):** if you ever want the Shell to read the *full GraphQL rollup* (e.g. a future field-rich pre-flight), add **`Commit statuses: Read`** (and **`Checks: Read`** for Checks-API-only workflows) to the bot PAT. Without them the Shell still works — it just skips the advisory read instead of reading it. Do **not** add them solely to silence the old error; the graceful skip already handles it.
 
 ---
 
