@@ -471,6 +471,19 @@ export function listMockBriefs(filters: { status?: string; classification?: stri
   });
 }
 
+// Mirrors the `major-list-briefs` paging contract: clamp limit to 1–200
+// (default 50), offset 0+, and return the full filtered count as `total`
+// alongside the requested window.
+export function listMockBriefsPaged(
+  filters: { status?: string; classification?: string } = {},
+  page: { limit?: number; offset?: number } = {},
+): { briefs: Brief[]; total: number } {
+  const all = listMockBriefs(filters);
+  const limit = Math.min(200, Math.max(1, page.limit ?? 50));
+  const offset = Math.max(0, page.offset ?? 0);
+  return { briefs: all.slice(offset, offset + limit), total: all.length };
+}
+
 export function getMockBrief(id: number): BriefDetail | null {
   const brief = MOCK_BRIEFS.find((b) => b.id === id);
   if (!brief) return null;
