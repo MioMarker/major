@@ -61,3 +61,4 @@ This preserves the historical record of why we believed what we believed at the 
 - [020 — Test framework split: pgTAP for RPCs, Deno test for edge functions, Vitest for Shell](./020-test-framework-split.md)
 - [021 — PR Derived Facts storage: JSONB column on `major.briefs`](./021-pr-derived-facts-storage.md)
 - [022 — Major Shell claim admission becomes system-pressure aware](./022-shell-claim-admission-system-pressure-aware.md)
+- [023 — Done-Brief retention purge: pg_cron janitor for terminal Briefs](./023-done-brief-retention-purge.md)

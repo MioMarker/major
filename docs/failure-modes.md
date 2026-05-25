@@ -380,3 +380,29 @@ Introduced by the `_shared/github-issue.ts` helper (Issue #3 / ADR 011). When a 
 **Automated handling.** None. Per ADR 011, the issue-close is a best-effort downstream effect; failure is logged but does not abort the Brief transition.
 
 **Manual escalation.** Manually close the issue. It is safe to do so — the resolution comment is already posted and documents the resolution. Follow the same token-scope and rate-limit checks as §18.
+
+---
+
+## 23. Done-Brief purge deleted the wrong Brief / didn't run (ADR 023)
+
+The `major-purge-done-briefs` pg_cron job (`major.purge_done_briefs`, daily) permanently deletes `done` Briefs ≥ 3 days past acceptance. Two failure shapes matter; deletion is irreversible.
+
+**Sub-case A: a Brief was purged that shouldn't have been.**
+
+**What it looks like.** A `done` Brief (and its Events/Runs/artifacts) is gone sooner than expected — usually because it was accepted prematurely, or a legacy Brief with no `status-transitioned`→`done` Event aged off its `updated_at` fallback.
+
+**Detection.** A `briefs-purged` Telemetry Record (`observation_type='briefs-purged'`) shows a `deleted_count` higher than expected; the Brief id no longer resolves. The deletion itself leaves no per-Brief audit row (the Events cascaded with it).
+
+**Automated handling.** None — the row is gone. The 3-day window is the only grace period.
+
+**Manual escalation.** Before trusting the job, run the preview SELECT in runbook §2.10 to see exactly what the next sweep would remove. If the anchor is wrong for your data, widen the retention or `cron.unschedule` the job (runbook §2.10) and delete manually via the Briefs View instead. Do not recover from GitHub — the PR/issue survive, but the Cyberbrain Brief and its audit trail do not.
+
+**Sub-case B: the job isn't running.**
+
+**What it looks like.** `done` Briefs accumulate indefinitely; no recent `briefs-purged` Telemetry Records.
+
+**Detection.** `select * from cron.job_run_details where jobid = (select jobid from cron.job where jobname = 'major-purge-done-briefs') order by start_time desc limit 5;` shows failures or no recent rows; or `cron.job` has no row (schedule never registered — verify the migration applied per §1.2's live-body caveat).
+
+**Automated handling.** None. Accumulation is cosmetic, not a correctness risk.
+
+**Manual escalation.** Re-register the schedule via a new migration (runbook §2.10), or run `select major.purge_done_briefs(3);` once to catch up. Confirm pg_cron is enabled on the project (the reaper depends on it too).
