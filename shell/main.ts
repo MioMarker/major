@@ -1995,18 +1995,32 @@ async function callHeartbeat(args: { initial: boolean }): Promise<void> {
   // the run was cancelled (reaper, repair, etc.) and the Shell should abort
   // gracefully. v1 does not consume the metadata field; we drop it and surface
   // it through telemetry separately if needed.
+  // Capture the runId we heartbeat for BEFORE the await. activeRun is a
+  // module-global the main loop flips during the network round-trip (prior Run
+  // ends, next Brief claimed), so the lease-loss signal must be attributed to
+  // the Run it was sent for — never to whatever Run is active when the response
+  // lands (ADR 024, bug #180).
+  const heartbeatRunId = activeRun?.runId ?? null;
   const body: { shellId: string; runId?: number } = {
     shellId: env.shellId,
   };
-  if (activeRun?.runId) body.runId = activeRun.runId;
+  if (heartbeatRunId != null) body.runId = heartbeatRunId;
   void args.initial;
   const resp = await majorApiPost("major-heartbeat", body) as Record<string, unknown> | null;
-  // renewedRun=false means the Reaper (or another mechanism) has already
-  // cancelled the active Run. Set the abort flag so executeRun stops at the
-  // next safe phase boundary (finding F-10).
-  if (activeRun && resp && resp.renewedRun === false) {
+  // renewedRun=false means the Reaper (or another mechanism) cancelled the Run
+  // we heartbeated. Abort (finding F-10) ONLY when this signal is for the
+  // current active Run: a runId must have been sent (an idle heartbeat carries
+  // none and major-heartbeat returns renewedRun=false unconditionally), and
+  // activeRun must still be that same Run. Otherwise a stale or idle response
+  // would poison an unrelated freshly-claimed Run (ADR 024, #180).
+  if (
+    heartbeatRunId != null &&
+    activeRun?.runId === heartbeatRunId &&
+    resp &&
+    resp.renewedRun === false
+  ) {
     log("warn", "heartbeat: renewedRun=false — lease lost; setting abort flag", {
-      runId: activeRun.runId,
+      runId: heartbeatRunId,
       shellId: env.shellId,
     });
     leaseLostFlag = true;

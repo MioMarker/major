@@ -22,34 +22,85 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 // ─────────────────────────────────────────────────────────────────
-// F-10: Heartbeat response interpretation (lease-lost detection)
+// F-10 + ADR-024: Heartbeat lease-loss detection, attributed to the Run
 // ─────────────────────────────────────────────────────────────────
-// main.ts sets leaseLostFlag = true when:
-//   activeRun !== null AND resp?.renewedRun === false
-// These tests verify the condition is correct as specified.
+// callHeartbeat (main.ts) sets leaseLostFlag = true only when the lease-loss
+// signal is for the CURRENT active Run:
+//   heartbeatRunId != null && activeRun?.runId === heartbeatRunId
+//     && resp?.renewedRun === false
+// heartbeatRunId is the runId captured BEFORE the network await; activeRun may
+// change during the await (prior Run ends, next Brief claimed). Per ADR 024
+// (#180) a stale or idle (no-runId) response must NOT poison an unrelated Run.
+//
+// Mirrors the guard by hand — main.ts boots the daemon on import, so its
+// internals can't be imported here.
+function wouldSetLeaseLostFlag(
+  heartbeatRunId: number | null,
+  currentRunId: number | null,
+  resp: unknown,
+): boolean {
+  return (
+    heartbeatRunId != null &&
+    currentRunId === heartbeatRunId &&
+    !!resp &&
+    (resp as Record<string, unknown>).renewedRun === false
+  );
+}
 
-test("F-10: response with renewedRun=false triggers abort condition", () => {
-  // Simulate the guard in callHeartbeat:
-  //   if (activeRun && resp && resp.renewedRun === false) { leaseLostFlag = true; }
-  const scenarios: Array<{ resp: unknown; hasActiveRun: boolean; expectAbort: boolean }> = [
-    { resp: { renewedRun: false }, hasActiveRun: true, expectAbort: true },
-    { resp: { renewedRun: true }, hasActiveRun: true, expectAbort: false },
-    { resp: { renewedRun: false }, hasActiveRun: false, expectAbort: false },
-    { resp: null, hasActiveRun: true, expectAbort: false },
-    { resp: undefined, hasActiveRun: true, expectAbort: false },
-    { resp: {}, hasActiveRun: true, expectAbort: false },
+test("F-10 + ADR-024: lease-loss aborts only when attributed to the current Run", () => {
+  const scenarios: Array<{
+    name: string;
+    heartbeatRunId: number | null;
+    currentRunId: number | null;
+    resp: unknown;
+    expectAbort: boolean;
+  }> = [
+    {
+      name: "genuine current-Run lease loss → abort",
+      heartbeatRunId: 10755, currentRunId: 10755,
+      resp: { renewedRun: false }, expectAbort: true,
+    },
+    {
+      name: "current Run renewed → no abort",
+      heartbeatRunId: 10755, currentRunId: 10755,
+      resp: { renewedRun: true }, expectAbort: false,
+    },
+    {
+      // #180: idle heartbeat (no runId) returns renewedRun=false unconditionally;
+      // a Brief is claimed during the await. Must NOT poison the fresh Run.
+      name: "idle heartbeat (no runId) + fresh Run claimed during await → no abort",
+      heartbeatRunId: null, currentRunId: 10755,
+      resp: { renewedRun: false }, expectAbort: false,
+    },
+    {
+      // #180: heartbeat sent for prior Run N; Run N ends and N+1 is claimed
+      // during the await; N's legitimate lease-loss must not abort N+1.
+      name: "stale prior-Run lease loss after Run transition → no abort",
+      heartbeatRunId: 90, currentRunId: 10755,
+      resp: { renewedRun: false }, expectAbort: false,
+    },
+    {
+      name: "idle heartbeat, still idle (no active Run) → no abort",
+      heartbeatRunId: null, currentRunId: null,
+      resp: { renewedRun: false }, expectAbort: false,
+    },
+    {
+      name: "null resp → no abort",
+      heartbeatRunId: 10755, currentRunId: 10755,
+      resp: null, expectAbort: false,
+    },
+    {
+      name: "empty resp (no renewedRun field) → no abort",
+      heartbeatRunId: 10755, currentRunId: 10755,
+      resp: {}, expectAbort: false,
+    },
   ];
 
   for (const s of scenarios) {
-    const wouldAbort = !!(
-      s.hasActiveRun &&
-      s.resp &&
-      (s.resp as Record<string, unknown>).renewedRun === false
-    );
     assert.equal(
-      wouldAbort,
+      wouldSetLeaseLostFlag(s.heartbeatRunId, s.currentRunId, s.resp),
       s.expectAbort,
-      `resp=${JSON.stringify(s.resp)} hasActiveRun=${s.hasActiveRun}: expected abort=${s.expectAbort}`,
+      s.name,
     );
   }
 });
