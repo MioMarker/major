@@ -52,7 +52,3 @@ Trunk-based, two devs (jointly review). `dev` is integration; `main` is releases
 6. Register GitHub webhook on `MioMarker/healthbite` and `MioMarker/healix` pointing at `major-github-webhook` URL
 
 Deferred: monitoring UI, Shell pool autoscaling, declarative config API.
-
-## Provenance
-
-Major's lifecycle model is inspired by RelyMD's Foundry (`~/Projects/platform/common/docs/foundry/`). See `docs/adr/001-major-derived-from-foundry.md` for the inheritance and the deliberate cuts. Component naming (Brief, Shell, Cyberbrain) is from `docs/adr/004-ghost-in-the-shell-naming.md`.
