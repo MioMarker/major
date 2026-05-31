@@ -1,6 +1,17 @@
 import { getMockBrief, listMockBriefs, listMockBriefsPaged, listMockQaBriefs } from "@/lib/mock/briefs";
-import type { Brief, BriefClassification, BriefDetail, BriefStatus } from "@/lib/types";
+import type { Brief, BriefClassification, BriefDetail, BriefStatus, Run } from "@/lib/types";
 import { USE_MOCK, majorFetch } from "@/lib/api/client";
+
+// Extended Run type exposing attempt_number from ADR 014 (briefs.max_attempts /
+// runs.attempt_number). These fields exist in the DB schema (db/types.ts) but are
+// not yet reflected in ui/lib/types.ts.
+export type RunWithAttempt = Run & { attempt_number: number };
+
+// Extended BriefDetail with attempt tracking fields.
+export type BriefDetailWithAttempts = Omit<BriefDetail, "runs"> & {
+  max_attempts: number;
+  runs: RunWithAttempt[];
+};
 
 export interface ListBriefsFilters {
   status?: BriefStatus;
@@ -71,11 +82,17 @@ export async function listBriefsPaged(
   });
 }
 
-export async function getBrief(id: number, authToken?: string): Promise<BriefDetail | null> {
+export async function getBrief(id: number, authToken?: string): Promise<BriefDetailWithAttempts | null> {
   if (USE_MOCK) {
-    return getMockBrief(id);
+    const mock = getMockBrief(id);
+    if (!mock) return null;
+    return {
+      ...mock,
+      max_attempts: 3,
+      runs: mock.runs.map((r) => ({ ...r, attempt_number: 1 })),
+    };
   }
-  return majorFetch<BriefDetail>(`major-get-brief`, {
+  return majorFetch<BriefDetailWithAttempts>(`major-get-brief`, {
     query: { briefId: id },
     authToken,
   });
@@ -147,6 +164,18 @@ export async function rearmBrief(
   return majorFetch<{ briefId: number; status: "ready-for-agent" }>("major-rearm-brief", {
     method: "POST",
     body: { briefId, reason },
+    authToken,
+  });
+}
+
+export async function rearmAsRepair(
+  briefId: number,
+  authToken?: string,
+): Promise<{ ok: boolean }> {
+  if (USE_MOCK) return { ok: true };
+  return majorFetch<{ ok: boolean }>("major-rearm-brief", {
+    method: "POST",
+    body: { briefId, mode: "repair-override" },
     authToken,
   });
 }

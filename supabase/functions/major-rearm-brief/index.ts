@@ -1,28 +1,36 @@
 // supabase/functions/major-rearm-brief/index.ts
 //
 // POST /major-rearm-brief
-//   body: { briefId: number, reason?: string }
-//   200:  { briefId, status: 'ready-for-agent' }
+//   body: { briefId: number, reason?: string, mode?: "repair-override" }
 //
-// Human-only re-arm. Transitions a Brief from `ready-for-human` back to
-// `ready-for-agent` so the next idle Shell claims it. Records a `rearmed`
-// Event with the optional reason and a `status-transitioned` Event for
-// the lifecycle audit trail.
+// Standard re-arm: { briefId, reason? }
+//   200:  { briefId, status: 'ready-for-agent' }
+//   Transitions a Brief from `ready-for-human` back to `ready-for-agent`.
+//   Records `rearmed` and `status-transitioned` Events.
+//
+// Repair-override: { briefId, mode: "repair-override" }
+//   200:  { ok: true }
+//   Requires brief.status === 'ready-for-human' AND latest run outcome === 'failed'.
+//   Sets status to 'ready-for-agent' and next_claim_purpose to 'repair' so the
+//   next claim picks a repair Run irrespective of retry budget (ADR 014).
+//   Records `human-rearm` and `status-transitioned` Events with mode in payload.
+//
+//   NOTE: next_claim_purpose requires a companion migration (sub-Brief of #103).
+//   The UPDATE below will fail at runtime until that migration is applied.
 //
 // Only `ready-for-human → ready-for-agent` is allowed. Re-arming from a
-// terminal status (`done`, `wontfix`) is rejected with 409; re-arming
-// from `ready-for-review` would bypass acceptance and is rejected with
-// 409 to keep the lifecycle coherent.
+// terminal status (`done`, `wontfix`) is rejected with 409.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleOptions } from "../_shared/cors.ts";
-import { authenticate } from "../_shared/auth.ts";
+import { authenticate, type MajorClient } from "../_shared/auth.ts";
 import { errorResponse, jsonResponse } from "../_shared/response.ts";
 import { deriveIdempotencyKey } from "../_shared/idempotency.ts";
 
 interface RearmBody {
   briefId: number;
   reason?: string;
+  mode?: "repair-override";
 }
 
 Deno.serve(async (req) => {
@@ -37,7 +45,7 @@ Deno.serve(async (req) => {
 
     const body = (await req.json()) as RearmBody;
     if (!body?.briefId || typeof body.briefId !== "number") {
-      return errorResponse("Invalid body — expected { briefId, reason? }", 400);
+      return errorResponse("Invalid body — expected { briefId, reason?, mode? }", 400);
     }
 
     const { data: prev, error: fetchErr } = await auth.client
@@ -53,52 +61,127 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Atomic status flip via filtered UPDATE — absorbs the race where two
-    // operators click Re-arm simultaneously. Affects 0 rows on race; we
-    // surface that as 409 rather than silently inserting duplicate events.
-    const { data: updated, error: updErr } = await auth.client
-      .from("briefs")
-      .update({ status: "ready-for-agent" })
-      .eq("id", body.briefId)
-      .eq("status", "ready-for-human")
-      .select("id");
-    if (updErr) {
-      console.error("[major-rearm-brief] update failed:", updErr);
-      return errorResponse("Internal server error", 500);
-    }
-    if (!updated || updated.length === 0) {
-      return errorResponse("Brief status changed concurrently; refresh and retry", 409);
+    if (body.mode === "repair-override") {
+      return await applyRepairOverride(auth.client, auth.actor, body.briefId, prev.status);
     }
 
-    const reason = typeof body.reason === "string" && body.reason.trim().length > 0
-      ? body.reason.trim()
-      : "re-armed via UI";
-    const baseDelivery = `rearm-${body.briefId}-${Date.now()}`;
-    await auth.client.from("events").insert([
-      {
-        brief_id: body.briefId,
-        type: "rearmed",
-        actor: auth.actor,
-        payload: { reason, prev_status: prev.status },
-        idempotency_key: deriveIdempotencyKey(body.briefId, "rearmed", auth.actor, baseDelivery),
-      },
-      {
-        brief_id: body.briefId,
-        type: "status-transitioned",
-        actor: auth.actor,
-        payload: { from: prev.status, to: "ready-for-agent" },
-        idempotency_key: deriveIdempotencyKey(
-          body.briefId,
-          "status-transitioned",
-          auth.actor,
-          baseDelivery,
-        ),
-      },
-    ]);
-
-    return jsonResponse({ briefId: body.briefId, status: "ready-for-agent" });
+    return await applyStandardRearm(auth.client, auth.actor, body.briefId, prev.status, body.reason);
   } catch (err) {
     console.error("[major-rearm-brief]", err);
     return errorResponse("Internal server error", 500);
   }
 });
+
+async function applyStandardRearm(
+  client: MajorClient,
+  actor: string,
+  briefId: number,
+  prevStatus: string,
+  reason?: string,
+) {
+  // Atomic status flip — absorbs the race where two operators click Re-arm
+  // simultaneously. Affects 0 rows on race; surfaced as 409.
+  const { data: updated, error: updErr } = await client
+    .from("briefs")
+    .update({ status: "ready-for-agent" })
+    .eq("id", briefId)
+    .eq("status", "ready-for-human")
+    .select("id");
+  if (updErr) {
+    console.error("[major-rearm-brief] update failed:", updErr);
+    return errorResponse("Internal server error", 500);
+  }
+  if (!updated || updated.length === 0) {
+    return errorResponse("Brief status changed concurrently; refresh and retry", 409);
+  }
+
+  const reasonText = typeof reason === "string" && reason.trim().length > 0
+    ? reason.trim()
+    : "re-armed via UI";
+  const baseDelivery = `rearm-${briefId}-${Date.now()}`;
+  await client.from("events").insert([
+    {
+      brief_id: briefId,
+      type: "rearmed",
+      actor,
+      payload: { reason: reasonText, prev_status: prevStatus },
+      idempotency_key: deriveIdempotencyKey(briefId, "rearmed", actor, baseDelivery),
+    },
+    {
+      brief_id: briefId,
+      type: "status-transitioned",
+      actor,
+      payload: { from: prevStatus, to: "ready-for-agent" },
+      idempotency_key: deriveIdempotencyKey(briefId, "status-transitioned", actor, baseDelivery),
+    },
+  ]);
+
+  return jsonResponse({ briefId, status: "ready-for-agent" });
+}
+
+async function applyRepairOverride(
+  client: MajorClient,
+  actor: string,
+  briefId: number,
+  prevStatus: string,
+) {
+  // Require the latest run to be failed — repair-override is for targeted repair
+  // of a known failure, not a general retry.
+  const { data: latestRun, error: runErr } = await client
+    .from("runs")
+    .select("id, outcome")
+    .eq("brief_id", briefId)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (runErr) {
+    console.error("[major-rearm-brief] run fetch failed:", runErr);
+    return errorResponse("Internal server error", 500);
+  }
+  if (!latestRun || latestRun.outcome !== "failed") {
+    return errorResponse(
+      "Re-arm as Repair requires the latest run to have outcome 'failed'",
+      409,
+    );
+  }
+
+  // NOTE: next_claim_purpose column requires a companion migration (sub-Brief of #103).
+  // This UPDATE will fail at runtime with a Postgres unknown-column error until that
+  // migration is applied. The column is included here to document the contract — when
+  // the migration lands, no code change is needed in this function.
+  const { data: updated, error: updErr } = await client
+    .from("briefs")
+    .update({ status: "ready-for-agent", next_claim_purpose: "repair" })
+    .eq("id", briefId)
+    .eq("status", "ready-for-human")
+    .select("id");
+
+  if (updErr) {
+    console.error("[major-rearm-brief] repair-override update failed:", updErr);
+    return errorResponse("Internal server error", 500);
+  }
+  if (!updated || updated.length === 0) {
+    return errorResponse("Brief status changed concurrently; refresh and retry", 409);
+  }
+
+  const baseDelivery = `repair-rearm-${briefId}-${Date.now()}`;
+  await client.from("events").insert([
+    {
+      brief_id: briefId,
+      type: "human-rearm",
+      actor,
+      payload: { mode: "repair-override", prev_status: prevStatus },
+      idempotency_key: deriveIdempotencyKey(briefId, "human-rearm", actor, baseDelivery),
+    },
+    {
+      brief_id: briefId,
+      type: "status-transitioned",
+      actor,
+      payload: { from: prevStatus, to: "ready-for-agent" },
+      idempotency_key: deriveIdempotencyKey(briefId, "status-transitioned", actor, baseDelivery),
+    },
+  ]);
+
+  return jsonResponse({ ok: true });
+}

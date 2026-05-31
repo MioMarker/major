@@ -29,9 +29,10 @@ import { getBrief } from "@/lib/api/briefs";
 import { getServerAuthToken } from "@/lib/auth-server";
 import { formatRelativeAge } from "@/lib/utils";
 import { TelemetryTab } from "@/components/briefs/TelemetryTab";
+import { AttemptBadge } from "@/components/briefs/AttemptBadge";
+import { RearmButton } from "@/components/briefs/RearmButton";
 import type { EventType, MajorEvent, Run, VerificationResult } from "@/lib/types";
-import { RearmBriefButton } from "./_rearm-button";
-import { RejectBriefButton } from "./_reject-button";
+import { RejectBriefButton } from "../../../briefs/[briefId]/_reject-button";
 
 const TERMINAL = new Set(["done", "wontfix"]);
 
@@ -116,6 +117,12 @@ function formatEventPayload(event: MajorEvent): React.ReactNode {
     case "human-handoff":
       return (
         <span className="text-xs text-muted-foreground">{String(p.reason ?? "—")}</span>
+      );
+    case "human-rearm":
+      return (
+        <span className="font-mono text-xs text-muted-foreground">
+          {String(p.mode ?? "standard")}
+        </span>
       );
     case "brief-created":
       return <span className="text-xs text-muted-foreground">brief created</span>;
@@ -202,6 +209,10 @@ export default async function BriefDetailPage({ params }: PageProps) {
   const sortedVerificationRunIds = [...verificationByRun.keys()].sort((a, b) => b - a);
   const runById = new Map(brief.runs.map((r) => [r.id, r]));
 
+  const latestExecuteRun = [...brief.runs]
+    .filter((r) => r.purpose === "execute")
+    .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())[0];
+
   return (
     <AppShell active="/">
       <div className="mb-6 flex items-start justify-between gap-4">
@@ -211,6 +222,12 @@ export default async function BriefDetailPage({ params }: PageProps) {
               #{brief.id}
             </h1>
             <StatusBadge status={brief.status} />
+            {latestExecuteRun && (
+              <AttemptBadge
+                attemptNumber={latestExecuteRun.attempt_number}
+                maxAttempts={brief.max_attempts}
+              />
+            )}
             {brief.classifications.map((c) => (
               <Badge key={c} variant="secondary">
                 {c}
@@ -234,7 +251,12 @@ export default async function BriefDetailPage({ params }: PageProps) {
               PR ↗
             </Link>
           )}
-          {brief.status === "ready-for-human" && <RearmBriefButton briefId={brief.id} />}
+          {brief.status === "ready-for-human" && (
+            <RearmButton
+              briefId={brief.id}
+              latestRunOutcome={latestExecuteRun?.outcome}
+            />
+          )}
           {!isTerminal && <RejectBriefButton briefId={brief.id} />}
         </div>
       </div>
