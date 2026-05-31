@@ -31,11 +31,15 @@
 //   3. INSERT brief_artifacts
 //   4. UPDATE briefs SET status = nextStatus
 //   5. INSERT events: run-ended, status-transitioned, [human-handoff]
+//
+// `Deno.serve` is wrapped in `if (import.meta.main)` so the test file can
+// `import { finalizeRunCore } from "./index.ts"` without binding a network port.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
 import { handleOptions } from "../_shared/cors.ts";
 import { authenticate } from "../_shared/auth.ts";
+import type { MajorClient } from "../_shared/auth.ts";
 import { errorResponse, jsonResponse } from "../_shared/response.ts";
 import { deriveIdempotencyKey } from "../_shared/idempotency.ts";
 import { RunSummaryHoist } from "./run-summary-hoist.ts";
@@ -76,7 +80,7 @@ interface ArtifactInput {
   payload?: Record<string, unknown>;
 }
 
-interface FinalizeBody {
+export interface FinalizeBody {
   runId: number;
   outcome: "succeeded" | "failed" | "cancelled";
   nextStatus: string;
@@ -103,49 +107,45 @@ const ALLOWED_NEXT_STATUSES = new Set([
 ]);
 
 // ────────────────────────────────────────────────────────────────────
-// Handler
+// Core logic (exported for testing)
 // ────────────────────────────────────────────────────────────────────
 
-Deno.serve(async (req) => {
-  const preflight = handleOptions(req);
-  if (preflight) return preflight;
+export async function finalizeRunCore(
+  client: MajorClient,
+  actor: string,
+  body: FinalizeBody,
+): Promise<Response> {
+  if (!body?.runId || !body.outcome || !body.nextStatus) {
+    return errorResponse("Invalid body — expected { runId, outcome, nextStatus }", 400);
+  }
+  if (!ALLOWED_NEXT_STATUSES.has(body.nextStatus)) {
+    return errorResponse(`nextStatus '${body.nextStatus}' not allowed by Run Finalization`, 400);
+  }
+  if (body.nextStatus === "ready-for-human" && !body.handoffReason) {
+    return errorResponse("ready-for-human requires handoffReason", 400);
+  }
 
-  if (req.method !== "POST") return errorResponse("Method not allowed", 405);
+  // Validate and hoist tachikomaCompletion when present.
+  let summaryMetrics: ReturnType<typeof RunSummaryHoist> | null = null;
+  if (body.tachikomaCompletion !== undefined) {
+    const parsed = TachikomaCompletionSchema.safeParse(body.tachikomaCompletion);
+    if (!parsed.success) {
+      return errorResponse(`tachikomaCompletion: ${parsed.error.message}`, 400);
+    }
+    summaryMetrics = RunSummaryHoist(parsed.data);
+  }
 
+  const idem = deriveIdempotencyKey(
+    null,
+    "run-finalize",
+    actor,
+    `run-${body.runId}`,
+  );
+
+  let data: unknown;
+  let rpcError: { message: string } | null = null;
   try {
-    const auth = await authenticate(req);
-    if (!auth.ok) return errorResponse(auth.message, auth.status);
-
-    const body = (await req.json()) as FinalizeBody;
-    if (!body?.runId || !body.outcome || !body.nextStatus) {
-      return errorResponse("Invalid body — expected { runId, outcome, nextStatus }", 400);
-    }
-    if (!ALLOWED_NEXT_STATUSES.has(body.nextStatus)) {
-      return errorResponse(`nextStatus '${body.nextStatus}' not allowed by Run Finalization`, 400);
-    }
-    if (body.nextStatus === "ready-for-human" && !body.handoffReason) {
-      return errorResponse("ready-for-human requires handoffReason", 400);
-    }
-
-    // Validate and hoist tachikomaCompletion when present.
-    let summaryMetrics: ReturnType<typeof RunSummaryHoist> | null = null;
-    if (body.tachikomaCompletion !== undefined) {
-      const parsed = TachikomaCompletionSchema.safeParse(body.tachikomaCompletion);
-      if (!parsed.success) {
-        return errorResponse(`tachikomaCompletion: ${parsed.error.message}`, 400);
-      }
-      summaryMetrics = RunSummaryHoist(parsed.data);
-    }
-
-    const actor = body.actor ?? auth.actor;
-    const idem = deriveIdempotencyKey(
-      null,
-      "run-finalize",
-      actor,
-      `run-${body.runId}`,
-    );
-
-    const { data, error } = await auth.client.rpc("finalize_run", {
+    const result = await client.rpc("finalize_run", {
       p_run_id: body.runId,
       p_outcome: body.outcome,
       p_next_status: body.nextStatus,
@@ -163,16 +163,45 @@ Deno.serve(async (req) => {
       p_cache_read_tokens: summaryMetrics?.cacheReadTokens ?? null,
       p_cache_write_tokens: summaryMetrics?.cacheWriteTokens ?? null,
     });
-
-    if (error) {
-      console.error("[major-finalize-run] RPC failed:", error);
-      return errorResponse(error.message, 500);
-    }
-
-    const row = Array.isArray(data) ? data[0] : data;
-    return jsonResponse({ briefId: row?.brief_id ?? null, runId: row?.run_id ?? null });
+    data = result.data;
+    rpcError = result.error as { message: string } | null;
   } catch (err) {
     console.error("[major-finalize-run]", err);
-    return errorResponse(err instanceof Error ? err.message : "Server error", 500);
+    return errorResponse("Internal server error", 500);
   }
-});
+
+  if (rpcError) {
+    console.error("[major-finalize-run] RPC failed:", rpcError);
+    return errorResponse("Internal server error", 500);
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  const typedRow = row as Record<string, unknown> | null | undefined;
+  return jsonResponse({ briefId: typedRow?.brief_id ?? null, runId: typedRow?.run_id ?? null });
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Handler
+// ────────────────────────────────────────────────────────────────────
+
+if (import.meta.main) {
+  Deno.serve(async (req) => {
+    const preflight = handleOptions(req);
+    if (preflight) return preflight;
+
+    if (req.method !== "POST") return errorResponse("Method not allowed", 405);
+
+    try {
+      const auth = await authenticate(req);
+      if (!auth.ok) return errorResponse(auth.message, auth.status);
+
+      const body = (await req.json()) as FinalizeBody;
+      const actor = body.actor ?? auth.actor;
+
+      return await finalizeRunCore(auth.client, actor, body);
+    } catch (err) {
+      console.error("[major-finalize-run]", err);
+      return errorResponse("Internal server error", 500);
+    }
+  });
+}
