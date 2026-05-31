@@ -31,6 +31,7 @@ import { formatRelativeAge } from "@/lib/utils";
 import { TelemetryTab } from "@/components/briefs/TelemetryTab";
 import { AttemptBadge } from "@/components/briefs/AttemptBadge";
 import { RearmButton } from "@/components/briefs/RearmButton";
+import { TimelineTab } from "@/components/briefs/TimelineTab";
 import type { EventType, MajorEvent, Run, VerificationResult } from "@/lib/types";
 import { RejectBriefButton } from "../../../briefs/[briefId]/_reject-button";
 
@@ -38,6 +39,7 @@ const TERMINAL = new Set(["done", "wontfix"]);
 
 interface PageProps {
   params: { briefId: string };
+  searchParams?: { tab?: string };
 }
 
 function formatDuration(startedAt: string, endedAt: string | null): string {
@@ -195,7 +197,7 @@ function groupVerificationByRun(
   }, new Map<number, VerificationResult[]>());
 }
 
-export default async function BriefDetailPage({ params }: PageProps) {
+export default async function BriefDetailPage({ params, searchParams }: PageProps) {
   const briefId = Number(params.briefId);
   if (Number.isNaN(briefId)) notFound();
   const authToken = await getServerAuthToken();
@@ -261,8 +263,9 @@ export default async function BriefDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      <Tabs defaultValue="content">
+      <Tabs defaultValue={searchParams?.tab ?? "timeline"}>
         <TabsList>
+          <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="content">Content</TabsTrigger>
           <TabsTrigger value="events">Events</TabsTrigger>
           <TabsTrigger value="runs">Runs</TabsTrigger>
@@ -271,6 +274,16 @@ export default async function BriefDetailPage({ params }: PageProps) {
           <TabsTrigger value="telemetry">Telemetry</TabsTrigger>
           <TabsTrigger value="relationships">Relationships</TabsTrigger>
         </TabsList>
+
+        {/* ── Timeline ── */}
+        <TabsContent value="timeline">
+          <TimelineTab
+            runs={brief.runs}
+            verifications={brief.verification_results}
+            telemetryRecords={brief.telemetry_records}
+            briefId={brief.id}
+          />
+        </TabsContent>
 
         {/* ── Content ── */}
         <TabsContent value="content">

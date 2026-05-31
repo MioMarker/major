@@ -201,6 +201,28 @@ function summarizeStreamEvent(payload: Record<string, unknown>): TelemetrySummar
   return { icon: "info", label: bodyType || "Stream event", tone: "muted", lines: [trunc(JSON.stringify(body), 200)] };
 }
 
+/** Telemetry records that must appear as inline rows (never hidden behind chip). */
+export function isExceptionalTelemetry(rec: TelemetryRecord): boolean {
+  if (rec.observation_type === "tachikoma-bash-observed") {
+    return rec.payload.decision === "denied";
+  }
+  return (
+    rec.observation_type === "tachikoma-stream-parse-errors" ||
+    rec.observation_type === "external-system-error"
+  );
+}
+
+/** One-line chip text for a run's routine telemetry: "N steps · M commands". */
+export function telemetryChipText(records: ReadonlyArray<TelemetryRecord>): string {
+  let steps = 0;
+  let commands = 0;
+  for (const rec of records) {
+    if (rec.observation_type === "tachikoma-stream-event") steps++;
+    else if (rec.observation_type === "tachikoma-bash-observed") commands++;
+  }
+  return `${steps} steps · ${commands} commands`;
+}
+
 export function summarizeTelemetry(rec: TelemetryRecord): TelemetrySummary {
   const t = rec.observation_type;
   if (t === "tachikoma-bash-observed") return summarizeBashObserved(rec.payload);
