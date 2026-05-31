@@ -12,4 +12,5 @@ export const MOCK_SETTINGS: SettingsPayload = {
   shell_pool_size_hint: 2,
   auto_triage_enabled: true,
   auto_triage_on_new_briefs: false,
+  ai_provider: "anthropic",
 };
