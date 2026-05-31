@@ -140,7 +140,10 @@ export type KnownTelemetryObservation =
   | 'tachikoma-phase-ended'
   // Written once per major.purge_done_briefs() sweep (ADR 023); payload carries
   // deleted_count + retention_days. brief_id/run_id are null (global sweep).
-  | 'briefs-purged';
+  | 'briefs-purged'
+  // Written once per major.purge_closed_triage_sessions() sweep (ADR 024);
+  // payload carries deleted_count + retention_days. brief_id/run_id are null.
+  | 'triage-sessions-purged';
 export type TelemetryObservationType =
   | KnownTelemetryObservation
   | (string & Record<never, never>);

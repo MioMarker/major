@@ -406,3 +406,29 @@ The `major-purge-done-briefs` pg_cron job (`major.purge_done_briefs`, daily) per
 **Automated handling.** None. Accumulation is cosmetic, not a correctness risk.
 
 **Manual escalation.** Re-register the schedule via a new migration (runbook §2.10), or run `select major.purge_done_briefs(3);` once to catch up. Confirm pg_cron is enabled on the project (the reaper depends on it too).
+
+---
+
+## 24. Closed-Triage-Session purge deleted the wrong session / didn't run (ADR 024)
+
+The `major-purge-closed-triage-sessions` pg_cron job (`major.purge_closed_triage_sessions`, daily) permanently deletes `closed` Triage Sessions ≥ 2 days past closure. Same shape as §23 with a tighter retention window; deletion is irreversible.
+
+**Sub-case A: a Triage Session was purged that shouldn't have been.**
+
+**What it looks like.** A `closed` Triage Session (and its `triage_change_sets` + `triage_change_operations`) is gone sooner than expected — usually because the operator closed the session before extracting something they later wanted from the transcript, or `updated_at` was bumped earlier than closure expected (a future code path that mutates closed sessions would manifest this way).
+
+**Detection.** A `triage-sessions-purged` Telemetry Record (`observation_type='triage-sessions-purged'`) shows a `deleted_count` higher than expected; the session id no longer resolves; child Briefs that came from it now have `source_session_id = null`. The deletion itself leaves no per-session audit row.
+
+**Automated handling.** None — the row is gone. The 2-day window is the only grace period. Child Briefs survive (the FK was nullified, not the Briefs deleted).
+
+**Manual escalation.** Before trusting the job, run the preview SELECT in runbook §2.11 to see exactly what the next sweep would remove. If the anchor is wrong for your data (something touched closed sessions post-closure and dragged `updated_at` forward, hiding them from the sweep), `cron.unschedule` the job and delete manually via the Triage list multi-select instead, then file an ADR amendment to add a `closed_at` column. Do not try to recover the transcript from anywhere — it lived only in `triage_sessions.transcript` and the deletion is irreversible.
+
+**Sub-case B: the job isn't running.**
+
+**What it looks like.** `closed` Triage Sessions accumulate on the Triage list indefinitely; no recent `triage-sessions-purged` Telemetry Records.
+
+**Detection.** `select * from cron.job_run_details where jobid = (select jobid from cron.job where jobname = 'major-purge-closed-triage-sessions') order by start_time desc limit 5;` shows failures or no recent rows; or `cron.job` has no row (schedule never registered — verify the migration applied per §1.2's live-body caveat).
+
+**Automated handling.** None. Accumulation is cosmetic, not a correctness risk — the operator can clear manually via the Triage list multi-select in the meantime.
+
+**Manual escalation.** Re-register the schedule via a new migration (runbook §2.11), or run `select major.purge_closed_triage_sessions(2);` once to catch up. Confirm pg_cron is enabled on the project. If the function call raises a foreign-key violation, the `triage_change_sets` delete step (added per ADR 024 § Decision) was skipped — verify the function body matches the migration.

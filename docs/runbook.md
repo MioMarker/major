@@ -90,7 +90,7 @@ for fn in \
 done
 ```
 
-Order doesn't matter; each function is independent. The reaper is invoked by `pg_cron`; the deploy command only publishes the function. **The reaper's pg_cron schedule is registered manually in the Supabase dashboard** (SQL editor / Database → Cron) — there is no `cron.schedule` for it in any migration. (The done-Brief purge job is different: its schedule *is* captured in a migration — see §2.10.)
+Order doesn't matter; each function is independent. The reaper is invoked by `pg_cron`; the deploy command only publishes the function. **The reaper's pg_cron schedule is registered manually in the Supabase dashboard** (SQL editor / Database → Cron) — there is no `cron.schedule` for it in any migration. (The two retention purge jobs are different: their schedules *are* captured in migrations — see §2.10 for done-Briefs and §2.11 for closed Triage Sessions.)
 
 ### 1.5 Build and push the Shell image
 
@@ -243,6 +243,27 @@ VALUES
 ```
 
 Never reset a Brief to `ready-for-agent` without recording an Event — the audit trail and the lifecycle invariants depend on it.
+
+### 2.3.1 Closing a stale `ready-for-human` Brief (done / wontfix)
+
+A Brief can sit in `ready-for-human` long after its work actually shipped via a *different* Brief/PR (early handoffs on `expected-paths-insufficient` are the common cause). There is **no edge function to mark a parked Brief `done`** — the UI only offers Re-arm and Reject (→ `wontfix`), and `done` is otherwise only reached via the PR-merge webhook (ADR 011). To resolve a stale Brief whose work is already merged:
+
+1. **Confirm the work shipped.** Find the merging PR/commit (`git log --all | grep -i <slug>`), and verify the artifact exists in the repo. Don't close on faith.
+2. **Transition + record Events** (direct Cyberbrain write — there's no API for this). Attribute to a **human** Actor; agent-attributed `done` violates the human-acceptance rule in `CLAUDE.md`:
+
+```sql
+UPDATE major.briefs SET status = 'done' WHERE id = <id>;   -- or 'wontfix'
+
+INSERT INTO major.events (brief_id, type, actor, idempotency_key, payload) VALUES
+  (<id>, 'manual-resolved', 'human:<user>', 'manual-close-<date>:<id>:resolved',
+   jsonb_build_object('resolution','done','reason','superseded by PR #<N>')),
+  (<id>, 'status-transitioned', 'human:<user>', 'manual-close-<date>:<id>:status',
+   jsonb_build_object('from','ready-for-human','to','done'));
+```
+
+   (REST equivalent: `PATCH /rest/v1/briefs?id=eq.<id>` with `Content-Profile: major` and the service-role key, then `POST /rest/v1/events`. `events.type` is unconstrained text; the `briefs_status_check` constraint already permits `done`/`wontfix`. Transition-validation lives only inside RPCs, so a direct table write is not blocked.)
+
+3. **Close the source issue manually.** The direct write does **not** post the ADR 011 resolution comment or close the linked GitHub issue — the PR-merge webhook and `major-reject-brief` do that, a raw `UPDATE` does not. Check `source_issue_repo`/`source_issue_number`; if the merging PR already auto-closed it (`Fixes #N`), you're done — otherwise close it by hand, and **don't close it if only part of the issue's scope shipped** (re-file a Brief for the remainder instead).
 
 ### 2.4 Inspecting the Events log
 
@@ -574,6 +595,58 @@ select cron.schedule('major-purge-done-briefs', '17 9 * * *', 'select major.purg
 ```
 
 **Disable the auto-purge** (manual deletion still available via the Briefs View): `select cron.unschedule('major-purge-done-briefs');`
+
+### 2.11 Triage retention (closed-Triage-Session purge)
+
+`closed` Triage Sessions are permanently deleted once they have been `closed` for ≥ 2 days. Implemented by `major.purge_closed_triage_sessions(retention_days int default 2)`, run daily at 09:23 UTC by the `major-purge-closed-triage-sessions` pg_cron job (ADR 024; migration `20260531000000_purge_closed_triage_sessions_cron.sql`). Like §2.10, **this schedule lives in the migration** — no dashboard step.
+
+- **Scope:** `status = 'closed'` only. `open` sessions are never touched (a stale-open auto-close policy is a future ADR).
+- **Age anchor:** `triage_sessions.updated_at`. Closure (via `major-finalize-triage-session` or a manual edit) is the last writer in current code paths, so `updated_at` approximates closed-at within seconds.
+- **Cascade order (in one transaction):**
+  1. `update major.briefs set source_session_id = null where source_session_id = any(<ids>)` — child Briefs survive as independent rows.
+  2. `delete from major.triage_change_sets where triage_session_id = any(<ids>)` — Operations cascade from change sets via their own FK.
+  3. `delete from major.triage_sessions where id = any(<ids>)`.
+- **Irreversible.** The 2-day window is the only grace period; the transcript and any auto-triage classification payload are gone with the row.
+
+**Preview what a sweep would delete (no delete):**
+
+```sql
+select s.id, s.status, s.updated_at,
+       (select count(*) from major.triage_change_sets cs where cs.triage_session_id = s.id) as change_sets,
+       (select count(*) from major.briefs b where b.source_session_id = s.id) as child_briefs
+from major.triage_sessions s
+where s.status = 'closed'
+  and s.updated_at < now() - interval '2 days'
+order by s.updated_at;
+```
+
+**Run it on demand** (returns the number deleted): `select major.purge_closed_triage_sessions(2);`
+
+**Confirm the job is scheduled / inspect recent runs:**
+
+```sql
+select jobid, schedule, command, active from cron.job where jobname = 'major-purge-closed-triage-sessions';
+select status, return_message, start_time
+from cron.job_run_details
+where jobid = (select jobid from cron.job where jobname = 'major-purge-closed-triage-sessions')
+order by start_time desc limit 5;
+```
+
+**See per-sweep telemetry:**
+
+```sql
+select created_at, payload from major.telemetry_records
+where observation_type = 'triage-sessions-purged' order by created_at desc limit 5;
+```
+
+**Change the retention window or cadence:** migrations are append-only — do **not** edit `20260531000000`. Write a new, later-versioned migration that re-registers the job:
+
+```sql
+select cron.unschedule('major-purge-closed-triage-sessions');
+select cron.schedule('major-purge-closed-triage-sessions', '23 9 * * *', 'select major.purge_closed_triage_sessions(7);');
+```
+
+**Disable the auto-purge** (manual deletion still available via the Triage list multi-select / `major-delete-triage-session`): `select cron.unschedule('major-purge-closed-triage-sessions');`
 
 ---
 
